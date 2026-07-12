@@ -1,0 +1,326 @@
+"""
+Free job-data sources (no proxy, no API key beyond public client-ids).
+=======================================================================
+
+Complements the JobSpy scrapers (Indeed/LinkedIn) with official / public JSON
+APIs that work fine from a datacenter IP — the ones JobSpy can't reach without
+residential proxies. Everything here is:
+
+  * free forever (no paid tier touched),
+  * key-less or uses a publicly documented client-id,
+  * fetched over plain httpx (async, concurrent), and
+  * normalised into ONE common schema so results merge cleanly.
+
+Common job schema returned by every ``fetch_*`` coroutine::
+
+    {
+      "source":      str,        # "arbeitsagentur" | "himalayas" | ...
+      "title":       str,
+      "company":     str | None,
+      "location":    str | None,
+      "is_remote":   bool,
+      "date_posted": str | None, # ISO-ish string when known
+      "salary":      str | None, # human-readable, e.g. "50000-70000 EUR / year"
+      "job_url":     str | None,
+      "description": str | None, # plain text, HTML stripped + truncated
+    }
+
+Sources (all verified working 2026-07):
+  * arbeitsagentur — Bundesagentur für Arbeit, the largest German job database
+  * himalayas      — remote jobs, worldwide
+  * remotive       — remote jobs
+  * remoteok       — remote tech jobs
+  * arbeitnow      — German + remote jobs
+  * jobicy         — remote jobs
+"""
+
+from __future__ import annotations
+
+import asyncio
+import html
+import logging
+import re
+from typing import Any
+
+import httpx
+
+log = logging.getLogger("jobspy-mcp.sources")
+
+# Names usable in the aggregated tools. "indeed"/"linkedin" are handled by JobSpy.
+API_SOURCES = ["arbeitsagentur", "himalayas", "remotive", "remoteok", "arbeitnow", "jobicy"]
+
+_UA = "Mozilla/5.0 (compatible; jobspy-mcp/1.0; +https://github.com/m0408-dev/jobspy-cowork-mcp)"
+_HEADERS = {"User-Agent": _UA, "Accept": "application/json"}
+_TIMEOUT = httpx.Timeout(25.0, connect=10.0)
+
+_TAG_RE = re.compile(r"<[^>]+>")
+_WS_RE = re.compile(r"[ \t]*\n[ \t]*")
+
+
+def _strip_html(text: Any, limit: int = 1500) -> str | None:
+    """Turn an HTML (or plain) description into trimmed plain text."""
+    if not text:
+        return None
+    s = html.unescape(_TAG_RE.sub(" ", str(text)))
+    s = _WS_RE.sub("\n", s)
+    s = re.sub(r"[ \t]{2,}", " ", s).strip()
+    if len(s) > limit:
+        s = s[:limit].rstrip() + " …[truncated — open job_url for full text]"
+    return s or None
+
+
+def _matches(job: dict[str, Any], term: str) -> bool:
+    """Case-insensitive keyword match over title+company+description (for feeds without search)."""
+    if not term:
+        return True
+    hay = " ".join(
+        str(job.get(k) or "") for k in ("title", "company", "description")
+    ).lower()
+    # Require every whitespace-separated token to appear (AND semantics, forgiving on order).
+    return all(tok in hay for tok in term.lower().split())
+
+
+def _salary(lo: Any, hi: Any, cur: Any = None, period: str | None = None) -> str | None:
+    lo = lo or None
+    hi = hi or None
+    if not lo and not hi:
+        return None
+    rng = f"{int(lo)}-{int(hi)}" if lo and hi else str(int(lo or hi))
+    out = rng
+    if cur:
+        out += f" {cur}"
+    if period:
+        out += f" / {period}"
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# Individual source clients — each returns list[normalised job dict]
+# --------------------------------------------------------------------------- #
+
+async def fetch_arbeitsagentur(
+    client: httpx.AsyncClient, term: str, location: str | None,
+    remote_only: bool, limit: int, days: int,
+) -> list[dict[str, Any]]:
+    """Bundesagentur für Arbeit — official German federal job database (free, public client-id)."""
+    params: dict[str, Any] = {"was": term, "size": min(limit, 100), "page": 1}
+    if location and location.lower() not in ("germany", "deutschland", "remote", ""):
+        params["wo"] = location
+    if remote_only:
+        params["arbeitszeit"] = "ho"          # ho = Homeoffice/telearbeit
+    if days and days > 0:
+        params["veroeffentlichtseit"] = min(days, 100)
+    r = await client.get(
+        "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/app/jobs",
+        params=params, headers={**_HEADERS, "X-API-Key": "jobboerse-jobsuche"},
+    )
+    r.raise_for_status()
+    data = r.json()
+    out: list[dict[str, Any]] = []
+    for j in data.get("stellenangebote", [])[:limit]:
+        ort = j.get("arbeitsort") or {}
+        loc = ", ".join(p for p in (ort.get("ort"), ort.get("region"), ort.get("land")) if p) or None
+        out.append({
+            "source": "arbeitsagentur",
+            "title": j.get("titel") or j.get("beruf"),
+            "company": j.get("arbeitgeber"),
+            "location": loc,
+            "is_remote": remote_only,
+            "date_posted": j.get("aktuelleVeroeffentlichungsdatum") or j.get("eintrittsdatum"),
+            "salary": None,
+            "job_url": f"https://www.arbeitsagentur.de/jobsuche/jobdetail/{j.get('refnr')}"
+                       if j.get("refnr") else None,
+            "description": None,   # list endpoint has no description; job_url has the full posting
+        })
+    return out
+
+
+async def fetch_himalayas(
+    client: httpx.AsyncClient, term: str, location: str | None,
+    remote_only: bool, limit: int, days: int,
+) -> list[dict[str, Any]]:
+    r = await client.get(
+        "https://himalayas.app/jobs/api/search",
+        params={"q": term, "limit": min(limit, 20)}, headers=_HEADERS,
+    )
+    r.raise_for_status()
+    out: list[dict[str, Any]] = []
+    for j in r.json().get("jobs", [])[:limit]:
+        locs = j.get("locationRestrictions") or []
+        out.append({
+            "source": "himalayas",
+            "title": j.get("title"),
+            "company": j.get("companyName"),
+            "location": ", ".join(locs) if locs else "Remote",
+            "is_remote": True,
+            "date_posted": j.get("pubDate"),
+            "salary": _salary(j.get("minSalary"), j.get("maxSalary"),
+                              j.get("currency"), j.get("salaryPeriod")),
+            "job_url": j.get("applicationLink"),
+            "description": _strip_html(j.get("description")),
+        })
+    return out
+
+
+async def fetch_remotive(
+    client: httpx.AsyncClient, term: str, location: str | None,
+    remote_only: bool, limit: int, days: int,
+) -> list[dict[str, Any]]:
+    r = await client.get(
+        "https://remotive.com/api/remote-jobs",
+        params={"search": term, "limit": limit}, headers=_HEADERS,
+    )
+    r.raise_for_status()
+    out: list[dict[str, Any]] = []
+    for j in r.json().get("jobs", [])[:limit]:
+        out.append({
+            "source": "remotive",
+            "title": j.get("title"),
+            "company": j.get("company_name"),
+            "location": j.get("candidate_required_location") or "Remote",
+            "is_remote": True,
+            "date_posted": j.get("publication_date"),
+            "salary": j.get("salary") or None,
+            "job_url": j.get("url"),
+            "description": _strip_html(j.get("description")),
+        })
+    return out
+
+
+async def fetch_remoteok(
+    client: httpx.AsyncClient, term: str, location: str | None,
+    remote_only: bool, limit: int, days: int,
+) -> list[dict[str, Any]]:
+    # RemoteOK returns a flat array; element 0 is a legal-notice object, not a job.
+    r = await client.get("https://remoteok.com/api", headers=_HEADERS)
+    r.raise_for_status()
+    out: list[dict[str, Any]] = []
+    for j in r.json():
+        if not isinstance(j, dict) or not j.get("position"):
+            continue
+        job = {
+            "source": "remoteok",
+            "title": j.get("position"),
+            "company": j.get("company"),
+            "location": j.get("location") or "Remote",
+            "is_remote": True,
+            "date_posted": j.get("date"),
+            "salary": _salary(j.get("salary_min"), j.get("salary_max"), "USD", "year"),
+            "job_url": j.get("url") or (f"https://remoteok.com/l/{j.get('id')}" if j.get("id") else None),
+            "description": _strip_html(j.get("description")),
+        }
+        if _matches(job, term):
+            out.append(job)
+        if len(out) >= limit:
+            break
+    return out
+
+
+async def fetch_arbeitnow(
+    client: httpx.AsyncClient, term: str, location: str | None,
+    remote_only: bool, limit: int, days: int,
+) -> list[dict[str, Any]]:
+    # Free feed has no server-side search — pull the latest batch and filter locally.
+    r = await client.get("https://www.arbeitnow.com/api/job-board-api", headers=_HEADERS)
+    r.raise_for_status()
+    out: list[dict[str, Any]] = []
+    for j in r.json().get("data", []):
+        if remote_only and not j.get("remote"):
+            continue
+        job = {
+            "source": "arbeitnow",
+            "title": j.get("title"),
+            "company": j.get("company_name"),
+            "location": j.get("location"),
+            "is_remote": bool(j.get("remote")),
+            "date_posted": j.get("created_at"),
+            "salary": None,
+            "job_url": j.get("url"),
+            "description": _strip_html(j.get("description")),
+        }
+        if _matches(job, term):
+            out.append(job)
+        if len(out) >= limit:
+            break
+    return out
+
+
+async def fetch_jobicy(
+    client: httpx.AsyncClient, term: str, location: str | None,
+    remote_only: bool, limit: int, days: int,
+) -> list[dict[str, Any]]:
+    params: dict[str, Any] = {"count": min(limit, 50)}
+    if term:
+        params["tag"] = term
+    r = await client.get("https://jobicy.com/api/v2/remote-jobs", params=params, headers=_HEADERS)
+    r.raise_for_status()
+    out: list[dict[str, Any]] = []
+    for j in r.json().get("jobs", [])[:limit]:
+        out.append({
+            "source": "jobicy",
+            "title": j.get("jobTitle"),
+            "company": j.get("companyName"),
+            "location": j.get("jobGeo") or "Remote",
+            "is_remote": True,
+            "date_posted": j.get("pubDate"),
+            "salary": _salary(j.get("annualSalaryMin"), j.get("annualSalaryMax"),
+                              j.get("salaryCurrency"), "year"),
+            "job_url": j.get("url"),
+            "description": _strip_html(j.get("jobExcerpt") or j.get("jobDescription")),
+        })
+    return out
+
+
+_FETCHERS = {
+    "arbeitsagentur": fetch_arbeitsagentur,
+    "himalayas": fetch_himalayas,
+    "remotive": fetch_remotive,
+    "remoteok": fetch_remoteok,
+    "arbeitnow": fetch_arbeitnow,
+    "jobicy": fetch_jobicy,
+}
+
+
+# --------------------------------------------------------------------------- #
+# Aggregator — run selected sources concurrently, dedup, return merged list
+# --------------------------------------------------------------------------- #
+
+def _dedup_key(job: dict[str, Any]) -> tuple[str, str]:
+    title = re.sub(r"\W+", " ", (job.get("title") or "").lower()).strip()[:70]
+    company = re.sub(r"\W+", " ", (job.get("company") or "").lower()).strip()[:40]
+    return (title, company)
+
+
+async def fetch_sources(
+    sources: list[str], term: str, location: str | None = None,
+    remote_only: bool = False, limit_per_source: int = 15, days: int = 30,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Fetch every named source concurrently, dedup across them, return (jobs, per_source_meta)."""
+    sources = [s for s in sources if s in _FETCHERS]
+    meta: dict[str, Any] = {}
+
+    async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+        async def run(name: str) -> list[dict[str, Any]]:
+            try:
+                jobs = await _FETCHERS[name](client, term, location, remote_only, limit_per_source, days)
+                meta[name] = len(jobs)
+                return jobs
+            except Exception as exc:  # noqa: BLE001 — one bad source must not sink the rest
+                log.warning("source %s failed: %s", name, exc)
+                meta[name] = f"error: {exc}"
+                return []
+
+        batches = await asyncio.gather(*(run(s) for s in sources))
+
+    seen: set[tuple[str, str]] = set()
+    merged: list[dict[str, Any]] = []
+    for batch in batches:
+        for job in batch:
+            if not job.get("title"):
+                continue
+            key = _dedup_key(job)
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(job)
+    return merged, meta

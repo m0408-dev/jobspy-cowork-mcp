@@ -17,6 +17,7 @@ wrapper does not exist here. All configuration is via environment variables (see
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 import json
 import logging
@@ -38,6 +39,12 @@ except ImportError as exc:  # pragma: no cover
     raise SystemExit(
         "python-jobspy is not installed. Run `uv sync` or `pip install -r requirements.txt`."
     ) from exc
+
+# Free, key-less/public-client-id JSON APIs that work from a datacenter IP
+# (Arbeitsagentur, Himalayas, Remotive, RemoteOK, Arbeitnow, Jobicy).
+from sources import API_SOURCES, fetch_sources, _dedup_key  # noqa: E402
+
+ApiSource = Literal["arbeitsagentur", "himalayas", "remotive", "remoteok", "arbeitnow", "jobicy"]
 
 
 # --------------------------------------------------------------------------- #
@@ -91,11 +98,14 @@ auth = (
 mcp = FastMCP(
     name="JobSpy Job Search",
     instructions=(
-        "Search real job postings across Indeed, LinkedIn, Glassdoor, Google, ZipRecruiter, "
-        "Bayt, Naukri and BDJobs with the `search_jobs` tool. It returns structured listings "
-        "(title, company, location, salary, url, description) that you can review, compare and "
-        "apply to. If a search comes back empty from a cloud host, the site most likely blocked "
-        "the datacenter IP — residential proxies (JOBSPY_PROXIES) fix that."
+        "Real job-posting search across 8 free sources. Preferred tool: `search_all_jobs` — it "
+        "queries Germany's official federal job database (Arbeitsagentur), five remote-job APIs "
+        "(Himalayas, Remotive, RemoteOK, Arbeitnow, Jobicy) AND Indeed+LinkedIn in parallel, then "
+        "dedups into one merged, normalised list. Use `search_german_jobs` for the German market "
+        "only, `search_remote_jobs` for remote-only aggregation, and `search_jobs` for direct "
+        "control over the JobSpy scrapers (Indeed/LinkedIn work from the cloud; Google/Glassdoor/"
+        "ZipRecruiter need residential proxies via JOBSPY_PROXIES). Every result has title, company, "
+        "location, remote flag, salary when known, an application url and a description."
     ),
     auth=auth,
 )
@@ -265,6 +275,166 @@ def search_jobs(
 
     log.info("search_jobs returning %d jobs (%d chars)", len(jobs), len(text))
     return text
+
+
+# --------------------------------------------------------------------------- #
+# Aggregated tools over the free JSON APIs (+ optional JobSpy)
+# --------------------------------------------------------------------------- #
+
+def _jobspy_to_common(rec: dict[str, Any]) -> dict[str, Any]:
+    """Normalise one JobSpy record into the shared cross-source schema."""
+    lo, hi, cur = rec.get("min_amount"), rec.get("max_amount"), rec.get("currency") or ""
+    salary = None
+    if lo or hi:
+        salary = (f"{int(lo)}-{int(hi)}" if lo and hi else str(int(lo or hi))) + (f" {cur}" if cur else "")
+    desc = rec.get("description")
+    return {
+        "source": rec.get("site") or "jobspy",
+        "title": rec.get("title"),
+        "company": rec.get("company"),
+        "location": rec.get("location"),
+        "is_remote": bool(rec.get("is_remote")),
+        "date_posted": str(rec["date_posted"]) if rec.get("date_posted") else None,
+        "salary": salary,
+        "job_url": rec.get("job_url_direct") or rec.get("job_url"),
+        "description": (str(desc)[:MAX_DESC_CHARS] + " …[truncated]") if desc and len(str(desc)) > MAX_DESC_CHARS
+                       else (str(desc) if desc else None),
+    }
+
+
+def _render_aggregate(jobs: list[dict[str, Any]], meta: dict[str, Any], extra: dict[str, Any] | None = None) -> str:
+    """JSON-encode aggregated results, shrinking the list if it blows the size cap."""
+    def build(items: list[dict[str, Any]], truncated: bool) -> str:
+        payload: dict[str, Any] = {"count": len(items), "sources": meta}
+        if extra:
+            payload.update(extra)
+        payload["jobs"] = items
+        if truncated:
+            payload["note"] = "Result truncated to fit the size limit — lower results_per_source."
+        return json.dumps(payload, ensure_ascii=False, indent=2, default=str)
+
+    text = build(jobs, truncated=False)
+    while len(text) > MAX_RESULT_CHARS and len(jobs) > 1:
+        jobs = jobs[: max(1, len(jobs) * 3 // 4)]
+        text = build(jobs, truncated=True)
+    return text
+
+
+@mcp.tool
+async def search_all_jobs(
+    search_term: Annotated[
+        str, Field(description="Keywords, e.g. 'python backend developer' or 'devops engineer'.")
+    ],
+    location: Annotated[
+        str, Field(description="City/region/country, e.g. 'Berlin, Germany' or 'Germany'. Used by Arbeitsagentur + Indeed/LinkedIn.")
+    ] = "Germany",
+    remote_only: Annotated[bool, Field(description="Only remote positions.")] = False,
+    results_per_source: Annotated[
+        int, Field(ge=1, le=50, description="How many results to pull from each source before dedup.")
+    ] = 15,
+    days_old: Annotated[
+        int, Field(ge=0, le=100, description="Only jobs newer than N days. 0 = no filter.")
+    ] = 30,
+    include_jobspy: Annotated[
+        bool, Field(description="Also scrape Indeed + LinkedIn (richer but slower ~30-60s). Set false for a fast API-only search.")
+    ] = True,
+    sources: Annotated[
+        list[ApiSource] | None,
+        Field(description="Restrict which free APIs to hit. Default = all six."),
+    ] = None,
+) -> str:
+    """MOST POWERFUL search — the best default for a real job hunt.
+
+    Queries in parallel: Germany's official federal job database (Arbeitsagentur — the largest
+    German job DB), five remote-job APIs (Himalayas, Remotive, RemoteOK, Arbeitnow, Jobicy) and,
+    unless disabled, Indeed + LinkedIn via JobSpy. Results are deduplicated across every source
+    and returned as one normalised list: {count, sources:{per-source counts}, jobs:[...]}.
+    """
+    api_sources = list(sources) if sources else list(API_SOURCES)
+    log.info("search_all_jobs term=%r loc=%r remote=%s jobspy=%s", search_term, location, remote_only, include_jobspy)
+
+    jobs, meta = await fetch_sources(
+        api_sources, search_term, location, remote_only, results_per_source, days_old
+    )
+
+    if include_jobspy:
+        try:
+            df = await asyncio.to_thread(
+                scrape_jobs,
+                site_name=["indeed", "linkedin"],
+                search_term=search_term,
+                location=location,
+                results_wanted=results_per_source,
+                hours_old=(days_old * 24) if days_old and days_old > 0 else None,
+                is_remote=remote_only,
+                country_indeed="germany",
+                proxies=DEFAULT_PROXIES,
+                verbose=0,
+            )
+            if df is not None and len(df):
+                seen = {_dedup_key(j) for j in jobs}
+                added = 0
+                for rec in _dataframe_to_records(df):
+                    job = _jobspy_to_common(rec)
+                    if not job["title"]:
+                        continue
+                    key = _dedup_key(job)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    jobs.append(job)
+                    added += 1
+                meta["indeed+linkedin"] = added
+        except Exception as exc:  # noqa: BLE001
+            log.warning("jobspy leg failed: %s", exc)
+            meta["indeed+linkedin"] = f"error: {exc}"
+
+    # Remote-first ordering when remote_only, else keep source order but surface remote first.
+    jobs.sort(key=lambda j: (not j.get("is_remote"),))
+    return _render_aggregate(jobs, meta, {"total_before_dedup_note": "counts in `sources` are post-fetch, pre-merge"})
+
+
+@mcp.tool
+async def search_german_jobs(
+    search_term: Annotated[str, Field(description="Keywords, e.g. 'Softwareentwickler' or 'data engineer'.")],
+    location: Annotated[
+        str, Field(description="City/region, e.g. 'Berlin' or 'München'. Leave as 'Germany' for nationwide.")
+    ] = "Germany",
+    remote_only: Annotated[bool, Field(description="Only Homeoffice/remote roles (Arbeitsagentur 'ho' filter).")] = False,
+    results_wanted: Annotated[int, Field(ge=1, le=100, description="Number of results.")] = 25,
+    days_old: Annotated[int, Field(ge=0, le=100, description="Only jobs newer than N days. 0 = no filter.")] = 30,
+) -> str:
+    """Search the official German federal job database (Bundesagentur für Arbeit / Arbeitsagentur).
+
+    This is the largest German job database and works without proxies. Returns
+    {count, jobs:[...]} — follow each job_url for the full posting (the list API has no
+    description field). Great for the German market, incl. a native remote filter.
+    """
+    jobs, meta = await fetch_sources(
+        ["arbeitsagentur"], search_term, location, remote_only, results_wanted, days_old
+    )
+    return _render_aggregate(jobs, meta)
+
+
+@mcp.tool
+async def search_remote_jobs(
+    search_term: Annotated[str, Field(description="Keywords, e.g. 'react developer' or 'sre'.")],
+    results_per_source: Annotated[int, Field(ge=1, le=50, description="Results per API before dedup.")] = 20,
+    sources: Annotated[
+        list[Literal["himalayas", "remotive", "remoteok", "arbeitnow", "jobicy"]] | None,
+        Field(description="Which remote APIs to hit. Default = all five."),
+    ] = None,
+) -> str:
+    """Aggregate remote-only jobs across Himalayas, Remotive, RemoteOK, Arbeitnow and Jobicy.
+
+    Fast (no scraping), free, deduplicated. Returns {count, sources, jobs:[...]}.
+    """
+    api_sources = list(sources) if sources else ["himalayas", "remotive", "remoteok", "arbeitnow", "jobicy"]
+    jobs, meta = await fetch_sources(
+        api_sources, search_term, location=None, remote_only=True,
+        limit_per_source=results_per_source, days=0,
+    )
+    return _render_aggregate(jobs, meta)
 
 
 # ASGI app so production hosts can run `uvicorn server:app` if they prefer.
