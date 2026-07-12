@@ -1,8 +1,10 @@
 # JobSpy Cowork MCP Server
 
-Ein **MCP-Server**, der echte Stellenanzeigen über **Indeed, LinkedIn, Glassdoor, Google Jobs, ZipRecruiter, Bayt, Naukri und BDJobs** in einem einzigen Aufruf durchsucht — gebaut, um ihn als **Custom Connector in Claude Cowork** (oder Claude.ai / Desktop / Code) einzubinden.
+Ein **MCP-Server**, der echte Stellenanzeigen über **11 freie Quellen** durchsucht — die offizielle deutsche Bundesagentur-für-Arbeit-API, acht Remote-/Job-APIs (Himalayas, Remotive, RemoteOK, Arbeitnow, Jobicy, WeWorkRemotely, The Muse, HackerNews „Who is hiring") sowie Indeed + LinkedIn via [JobSpy](https://github.com/speedyapply/JobSpy) — gebaut als **Custom Connector für Claude Cowork** (oder Claude.ai / Desktop / Code).
 
-Er stellt genau ein Tool bereit: **`search_jobs`**. Angetrieben von der [JobSpy](https://github.com/speedyapply/JobSpy)-Bibliothek.
+**5 Tools:** `search_all_jobs` (alle Quellen parallel, dedupliziert — bestes Standard-Tool), `search_german_jobs` (Arbeitsagentur), `search_remote_jobs` (nur Remote), `search_jobs` (JobSpy direkt), `list_job_sources` (Quellen-Katalog). Alles frei, kein Key, keine Proxys nötig.
+
+Der Server ist für **öffentlichen Betrieb gehärtet**: Per-IP-Rate-Limit, Concurrency-Cap um die Scraper (schützt die geteilte Datacenter-IP vor Bans), Non-Root-Container, Healthcheck + Watchdog. **Für viele Nutzer gilt trotzdem: eine 1-GB-Gratis-VM mit einer IP skaliert nicht beliebig — der robuste Weg ist, dass jede/r die eigene Gratis-Instanz deployt** (Anleitung unten).
 
 > **Wie es gebaut ist:** reines Python mit [FastMCP](https://gofastmcp.com). JobSpy wird direkt im Prozess aufgerufen — **keine Shell, kein Docker-Subprocess**. Dadurch existiert die Command-Injection-Lücke typischer Wrapper hier gar nicht. Ein Codebase, zwei Betriebsarten: `stdio` (lokal) und `http` (öffentlich, für Cowork).
 
@@ -187,6 +189,12 @@ claude mcp add jobspy -- uv --directory C:\Users\Momo\jobspy-cowork-mcp run pyth
 ## Konfiguration (Env-Vars)
 
 Alle in `.env.example` dokumentiert. Wichtigste: `MCP_TRANSPORT` (`stdio`|`http`), `MCP_HTTP_PATH` (Geheim-Pfad), `JOBSPY_PROXIES`, optional `MCP_AUTH_TOKEN` (Bearer-Token, für Clients die Auth verlangen).
+
+**Härtung / öffentlicher Betrieb:**
+- `RATE_LIMIT_PER_MIN` (Default `40`) — Requests pro Minute und IP; darüber HTTP 429. `0` schaltet das Limit ab.
+- `JOBSPY_CONCURRENCY` (Default `1`) — gleichzeitige Indeed/LinkedIn-Scrapes. Niedrig halten: unbegrenzte Parallel-Scrapes über *eine* Datacenter-IP führen zu IP-Bans.
+- `search_all_jobs` nutzt Indeed/LinkedIn (JobSpy) standardmäßig **nicht** — nur wenn `include_jobspy=true`. Die freien APIs sind der sichere öffentliche Default; die Scraper teilen sich die eine IP.
+- Container läuft als Non-Root (uid 10001) mit HEALTHCHECK; ein Host-Watchdog-Cron (im cloud-init) startet den Container neu, falls die App hängt.
 
 ## Hinweis
 
