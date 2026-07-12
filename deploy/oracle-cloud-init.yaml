@@ -42,9 +42,9 @@ runcmd:
 
   # --- App container (only bound to localhost; Caddy is the public face) ---
   - systemctl enable --now docker
-  - git clone https://github.com/GITHUB_USER/jobspy-cowork-mcp.git /opt/jobspy-cowork-mcp
+  - git clone https://github.com/m0408-dev/jobspy-cowork-mcp.git /opt/jobspy-cowork-mcp
   - >
     docker run -d --restart unless-stopped --name jobspy
     -p 127.0.0.1:8000:8000
-    -e MCP_TRANSPORT=http -e MCP_HTTP_PATH=/mcp-CHANGE-ME-9f3a2b/
+    -e MCP_TRANSPORT=http -e MCP_HTTP_PATH=REPLACE_WITH_YOUR_SECRET_PATH
     $(cd /opt/jobspy-cowork-mcp && docker build -q .)

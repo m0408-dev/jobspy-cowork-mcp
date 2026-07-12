@@ -18,8 +18,11 @@ EOF
 sudo systemctl reload caddy
 
 echo ""
-echo "Done. Your connector URL (once DNS + Let's Encrypt settle, ~30s):"
-echo "  https://${HOSTNAME}/mcp-CHANGE-ME-9f3a2b/"
+echo "Done. Base URL (once DNS + Let's Encrypt settle, ~30s): https://${HOSTNAME}"
 echo ""
-echo "Health check:"
+echo "Your Cowork connector URL is that base URL + the secret path you set as"
+echo "MCP_HTTP_PATH in the cloud-init script, e.g.:"
+echo "  https://${HOSTNAME}/mcp-<your-secret>/"
+echo ""
+echo "Health check (always unauthenticated, no secret needed):"
 echo "  curl https://${HOSTNAME}/health"
