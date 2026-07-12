@@ -47,7 +47,29 @@ import httpx
 log = logging.getLogger("jobspy-mcp.sources")
 
 # Names usable in the aggregated tools. "indeed"/"linkedin" are handled by JobSpy.
-API_SOURCES = ["arbeitsagentur", "himalayas", "remotive", "remoteok", "arbeitnow", "jobicy"]
+API_SOURCES = [
+    "arbeitsagentur", "himalayas", "remotive", "remoteok", "arbeitnow",
+    "jobicy", "hackernews", "weworkremotely", "themuse",
+]
+
+# Human-readable catalog, surfaced by the list_job_sources MCP tool so an agent can
+# pick the right `sources=[...]` for a query. (JobSpy's indeed/linkedin listed too.)
+SOURCE_INFO: dict[str, dict[str, str]] = {
+    "arbeitsagentur": {"coverage": "Germany (largest official DB)", "remote": "filterable", "auth": "free public client-id"},
+    "himalayas":      {"coverage": "remote worldwide", "remote": "remote-only", "auth": "none"},
+    "remotive":       {"coverage": "remote worldwide", "remote": "remote-only", "auth": "none"},
+    "remoteok":       {"coverage": "remote tech", "remote": "remote-only", "auth": "none"},
+    "arbeitnow":      {"coverage": "Germany + EU + remote", "remote": "mixed", "auth": "none"},
+    "jobicy":         {"coverage": "remote worldwide", "remote": "remote-only", "auth": "none"},
+    "hackernews":     {"coverage": "startups/tech via monthly 'Who is hiring'", "remote": "mixed", "auth": "none"},
+    "weworkremotely": {"coverage": "remote (programming)", "remote": "remote-only", "auth": "none"},
+    "themuse":        {"coverage": "global (US-heavy)", "remote": "mixed", "auth": "none"},
+    "indeed":         {"coverage": "global aggregator (via JobSpy)", "remote": "filterable", "auth": "none (may need proxy in cloud)"},
+    "linkedin":       {"coverage": "global (via JobSpy)", "remote": "filterable", "auth": "none (rate-limited)"},
+}
+
+# Which sources are remote-first (used by search_remote_jobs).
+REMOTE_SOURCES = ["himalayas", "remotive", "remoteok", "arbeitnow", "jobicy", "hackernews", "weworkremotely", "themuse"]
 
 _UA = "Mozilla/5.0 (compatible; jobspy-mcp/1.0; +https://github.com/m0408-dev/jobspy-cowork-mcp)"
 _HEADERS = {"User-Agent": _UA, "Accept": "application/json"}
@@ -292,6 +314,133 @@ async def fetch_jobicy(
     return out
 
 
+async def fetch_hackernews(
+    client: httpx.AsyncClient, term: str, location: str | None,
+    remote_only: bool, limit: int, days: int,
+) -> list[dict[str, Any]]:
+    """HackerNews monthly 'Ask HN: Who is hiring?' thread — each top-level comment is a job.
+
+    The thread is posted monthly by the 'whoishiring' bot; we find the newest one via the
+    free Algolia API, then read its comments. Great for startup / remote tech roles.
+    """
+    r = await client.get(
+        "https://hn.algolia.com/api/v1/search_by_date",
+        params={"tags": "story,author_whoishiring", "hitsPerPage": 10}, headers=_HEADERS,
+    )
+    r.raise_for_status()
+    hits = r.json().get("hits", [])
+    thread = next((h for h in hits if "who is hiring" in (h.get("title") or "").lower()), None)
+    if not thread:
+        return []
+    r2 = await client.get(f"https://hn.algolia.com/api/v1/items/{thread['objectID']}", headers=_HEADERS)
+    r2.raise_for_status()
+    out: list[dict[str, Any]] = []
+    for c in r2.json().get("children", []):
+        txt = c.get("text")
+        if not txt:
+            continue
+        # First paragraph is the "Company | Role | Location | REMOTE | $" headline line.
+        headline = _strip_html(re.split(r"<p>", txt, maxsplit=1)[0], 300) or ""
+        parts = [p.strip() for p in headline.split("|") if p.strip()]
+        low = txt.lower()
+        is_remote = "remote" in low
+        if remote_only and not is_remote:
+            continue
+        m = re.search(r'href="(https?://[^"]+)"', txt)
+        job = {
+            "source": "hackernews",
+            "title": (" | ".join(parts[:3]) if parts else headline)[:160] or "HN job post",
+            "company": parts[0] if parts else None,
+            "location": None,
+            "is_remote": is_remote,
+            "date_posted": c.get("created_at"),
+            "salary": None,
+            "job_url": (m.group(1) if m else f"https://news.ycombinator.com/item?id={c.get('id')}"),
+            "description": _strip_html(txt),
+        }
+        if _match_any(job, term):
+            out.append(job)
+        if len(out) >= limit:
+            break
+    return out
+
+
+async def fetch_weworkremotely(
+    client: httpx.AsyncClient, term: str, location: str | None,
+    remote_only: bool, limit: int, days: int,
+) -> list[dict[str, Any]]:
+    """WeWorkRemotely programming RSS feed — all remote, parsed without an XML dep."""
+    r = await client.get(
+        "https://weworkremotely.com/categories/remote-programming-jobs.rss", headers=_HEADERS,
+    )
+    r.raise_for_status()
+
+    def _tag(block: str, name: str) -> str | None:
+        m = re.search(rf"<{name}>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</{name}>", block, re.S)
+        return html.unescape(m.group(1).strip()) if m else None
+
+    out: list[dict[str, Any]] = []
+    for block in re.findall(r"<item>(.*?)</item>", r.text, re.S):
+        title = _tag(block, "title") or ""          # "Company: Role"
+        company, role = (title.split(":", 1) + [""])[:2] if ":" in title else ("", title)
+        job = {
+            "source": "weworkremotely",
+            "title": (role or title).strip() or None,
+            "company": company.strip() or None,
+            "location": _tag(block, "region") or "Remote",
+            "is_remote": True,
+            "date_posted": _tag(block, "pubDate"),
+            "salary": None,
+            "job_url": _tag(block, "link"),
+            "description": _strip_html(_tag(block, "description")),
+        }
+        if _match_any(job, term):
+            out.append(job)
+        if len(out) >= limit:
+            break
+    return out
+
+
+async def fetch_themuse(
+    client: httpx.AsyncClient, term: str, location: str | None,
+    remote_only: bool, limit: int, days: int,
+) -> list[dict[str, Any]]:
+    """The Muse public API (free, no key). No free-text search, so pull pages and filter locally."""
+    out: list[dict[str, Any]] = []
+    for page in range(3):
+        if len(out) >= limit:
+            break
+        r = await client.get(
+            "https://www.themuse.com/api/public/jobs",
+            params={"page": page}, headers=_HEADERS,
+        )
+        r.raise_for_status()
+        results = r.json().get("results", [])
+        if not results:
+            break
+        for j in results:
+            locs = [l.get("name") for l in (j.get("locations") or []) if l.get("name")]
+            is_remote = any("remote" in (l or "").lower() for l in locs)
+            if remote_only and not is_remote:
+                continue
+            job = {
+                "source": "themuse",
+                "title": j.get("name"),
+                "company": (j.get("company") or {}).get("name"),
+                "location": ", ".join(locs) or None,
+                "is_remote": is_remote,
+                "date_posted": j.get("publication_date"),
+                "salary": None,
+                "job_url": (j.get("refs") or {}).get("landing_page"),
+                "description": _strip_html(j.get("contents")),
+            }
+            if _match_any(job, term):
+                out.append(job)
+            if len(out) >= limit:
+                break
+    return out
+
+
 _FETCHERS = {
     "arbeitsagentur": fetch_arbeitsagentur,
     "himalayas": fetch_himalayas,
@@ -299,6 +448,9 @@ _FETCHERS = {
     "remoteok": fetch_remoteok,
     "arbeitnow": fetch_arbeitnow,
     "jobicy": fetch_jobicy,
+    "hackernews": fetch_hackernews,
+    "weworkremotely": fetch_weworkremotely,
+    "themuse": fetch_themuse,
 }
 
 

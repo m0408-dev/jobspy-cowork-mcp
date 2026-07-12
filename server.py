@@ -42,9 +42,14 @@ except ImportError as exc:  # pragma: no cover
 
 # Free, key-less/public-client-id JSON APIs that work from a datacenter IP
 # (Arbeitsagentur, Himalayas, Remotive, RemoteOK, Arbeitnow, Jobicy).
-from sources import API_SOURCES, fetch_sources, _dedup_key  # noqa: E402
+from sources import (  # noqa: E402
+    API_SOURCES, REMOTE_SOURCES, SOURCE_INFO, fetch_sources, _dedup_key,
+)
 
-ApiSource = Literal["arbeitsagentur", "himalayas", "remotive", "remoteok", "arbeitnow", "jobicy"]
+ApiSource = Literal[
+    "arbeitsagentur", "himalayas", "remotive", "remoteok", "arbeitnow",
+    "jobicy", "hackernews", "weworkremotely", "themuse",
+]
 
 
 # --------------------------------------------------------------------------- #
@@ -98,14 +103,17 @@ auth = (
 mcp = FastMCP(
     name="JobSpy Job Search",
     instructions=(
-        "Real job-posting search across 8 free sources. Preferred tool: `search_all_jobs` — it "
-        "queries Germany's official federal job database (Arbeitsagentur), five remote-job APIs "
-        "(Himalayas, Remotive, RemoteOK, Arbeitnow, Jobicy) AND Indeed+LinkedIn in parallel, then "
-        "dedups into one merged, normalised list. Use `search_german_jobs` for the German market "
-        "only, `search_remote_jobs` for remote-only aggregation, and `search_jobs` for direct "
-        "control over the JobSpy scrapers (Indeed/LinkedIn work from the cloud; Google/Glassdoor/"
-        "ZipRecruiter need residential proxies via JOBSPY_PROXIES). Every result has title, company, "
-        "location, remote flag, salary when known, an application url and a description."
+        "Real job-posting search across 11 free sources. To find as many relevant jobs as possible, "
+        "prefer `search_all_jobs` — it queries in parallel: Germany's official federal job database "
+        "(Arbeitsagentur), remote-job APIs (Himalayas, Remotive, RemoteOK, Arbeitnow, Jobicy, "
+        "WeWorkRemotely, The Muse), HackerNews 'Who is hiring', AND Indeed+LinkedIn — then dedups into "
+        "one normalised list. Call `list_job_sources` to see every source and pick `sources=[...]`. "
+        "Use `search_german_jobs` for the German market, `search_remote_jobs` for remote-only, and "
+        "`search_jobs` for direct JobSpy control. Tips for good results: start with response_format="
+        "'concise' and a broad search_term to cast a wide net, then re-query promising hits with "
+        "response_format='detailed'; broaden by adding sources or raising results_per_source. Every "
+        "result has title, company, location, remote flag, an application url (+ salary/description in "
+        "detailed mode)."
     ),
     auth=auth,
 )
@@ -302,15 +310,29 @@ def _jobspy_to_common(rec: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _render_aggregate(jobs: list[dict[str, Any]], meta: dict[str, Any], extra: dict[str, Any] | None = None) -> str:
+# In "concise" mode we drop the heavy/optional fields so many more jobs fit under the
+# size cap — the agent can re-query a shortlist with response_format="detailed".
+_CONCISE_DROP = ("description", "salary", "date_posted")
+
+
+def _render_aggregate(
+    jobs: list[dict[str, Any]], meta: dict[str, Any],
+    response_format: str = "concise", extra: dict[str, Any] | None = None,
+) -> str:
     """JSON-encode aggregated results, shrinking the list if it blows the size cap."""
+    if response_format == "concise":
+        jobs = [{k: v for k, v in j.items() if k not in _CONCISE_DROP} for j in jobs]
+
     def build(items: list[dict[str, Any]], truncated: bool) -> str:
-        payload: dict[str, Any] = {"count": len(items), "sources": meta}
+        payload: dict[str, Any] = {"count": len(items), "sources": meta, "response_format": response_format}
         if extra:
             payload.update(extra)
         payload["jobs"] = items
         if truncated:
-            payload["note"] = "Result truncated to fit the size limit — lower results_per_source."
+            payload["note"] = (
+                "Result truncated to fit the size limit. Use response_format='concise', "
+                "fewer sources, or a lower results_per_source to see everything."
+            )
         return json.dumps(payload, ensure_ascii=False, indent=2, default=str)
 
     text = build(jobs, truncated=False)
@@ -318,6 +340,24 @@ def _render_aggregate(jobs: list[dict[str, Any]], meta: dict[str, Any], extra: d
         jobs = jobs[: max(1, len(jobs) * 3 // 4)]
         text = build(jobs, truncated=True)
     return text
+
+
+@mcp.tool
+def list_job_sources() -> str:
+    """List every job source this server can search, with coverage and how to select it.
+
+    Use this to decide the `sources=[...]` argument for search_all_jobs / search_remote_jobs.
+    Returns {api_sources, remote_sources, jobspy_sources, catalog}. Cheap, no network call.
+    """
+    return json.dumps({
+        "total_sources": len(SOURCE_INFO),
+        "api_sources": API_SOURCES,
+        "remote_sources": REMOTE_SOURCES,
+        "jobspy_sources": ["indeed", "linkedin", "glassdoor", "google", "zip_recruiter", "bayt", "naukri", "bdjobs"],
+        "catalog": SOURCE_INFO,
+        "recommended": "search_all_jobs for the widest net; search_german_jobs for the DE market; "
+                       "search_remote_jobs for remote-only.",
+    }, ensure_ascii=False, indent=2)
 
 
 @mcp.tool
@@ -340,8 +380,12 @@ async def search_all_jobs(
     ] = True,
     sources: Annotated[
         list[ApiSource] | None,
-        Field(description="Restrict which free APIs to hit. Default = all six."),
+        Field(description="Restrict which free APIs to hit. Default = all nine. See list_job_sources."),
     ] = None,
+    response_format: Annotated[
+        Literal["concise", "detailed"],
+        Field(description="concise = title/company/location/url (fits many more jobs — best for a first sweep); detailed = also description/salary/date."),
+    ] = "concise",
 ) -> str:
     """MOST POWERFUL search — the best default for a real job hunt.
 
@@ -389,9 +433,9 @@ async def search_all_jobs(
             log.warning("jobspy leg failed: %s", exc)
             meta["indeed+linkedin"] = f"error: {exc}"
 
-    # Remote-first ordering when remote_only, else keep source order but surface remote first.
+    # Surface remote roles first; keep source order otherwise.
     jobs.sort(key=lambda j: (not j.get("is_remote"),))
-    return _render_aggregate(jobs, meta, {"total_before_dedup_note": "counts in `sources` are post-fetch, pre-merge"})
+    return _render_aggregate(jobs, meta, response_format=response_format)
 
 
 @mcp.tool
@@ -421,20 +465,25 @@ async def search_remote_jobs(
     search_term: Annotated[str, Field(description="Keywords, e.g. 'react developer' or 'sre'.")],
     results_per_source: Annotated[int, Field(ge=1, le=50, description="Results per API before dedup.")] = 20,
     sources: Annotated[
-        list[Literal["himalayas", "remotive", "remoteok", "arbeitnow", "jobicy"]] | None,
-        Field(description="Which remote APIs to hit. Default = all five."),
+        list[Literal["himalayas", "remotive", "remoteok", "arbeitnow", "jobicy", "hackernews", "weworkremotely", "themuse"]] | None,
+        Field(description="Which remote APIs to hit. Default = all eight remote sources."),
     ] = None,
+    response_format: Annotated[
+        Literal["concise", "detailed"],
+        Field(description="concise = compact (more jobs fit); detailed = with descriptions/salary."),
+    ] = "concise",
 ) -> str:
-    """Aggregate remote-only jobs across Himalayas, Remotive, RemoteOK, Arbeitnow and Jobicy.
+    """Aggregate remote jobs across Himalayas, Remotive, RemoteOK, Arbeitnow, Jobicy,
+    HackerNews 'Who is hiring', WeWorkRemotely and The Muse.
 
     Fast (no scraping), free, deduplicated. Returns {count, sources, jobs:[...]}.
     """
-    api_sources = list(sources) if sources else ["himalayas", "remotive", "remoteok", "arbeitnow", "jobicy"]
+    api_sources = list(sources) if sources else list(REMOTE_SOURCES)
     jobs, meta = await fetch_sources(
         api_sources, search_term, location=None, remote_only=True,
         limit_per_source=results_per_source, days=0,
     )
-    return _render_aggregate(jobs, meta)
+    return _render_aggregate(jobs, meta, response_format=response_format)
 
 
 # ASGI app so production hosts can run `uvicorn server:app` if they prefer.
