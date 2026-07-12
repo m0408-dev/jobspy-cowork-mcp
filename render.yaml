@@ -1,0 +1,24 @@
+# Render Blueprint — deploy this repo as a public HTTPS MCP server for Claude Cowork.
+# In Render: New + > Blueprint > pick this repo. Then set the secret env vars below.
+services:
+  - type: web
+    name: jobspy-cowork-mcp
+    runtime: docker
+    # "starter" ($7/mo) stays always-on. "free" works too but sleeps after ~15 min idle,
+    # which makes the first Cowork request slow or time out until it wakes up.
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: MCP_TRANSPORT
+        value: http
+      # IMPORTANT: change the random suffix. This secret-ish path is your access guard —
+      # only someone who knows the full URL can reach the server.
+      - key: MCP_HTTP_PATH
+        value: /mcp-CHANGE-ME-9f3a2b/
+      # Residential proxies — REQUIRED for reliable LinkedIn/Glassdoor/Indeed from the cloud.
+      # Format: user:pass@host:port,user:pass@host:port   (set as a secret in the dashboard)
+      - key: JOBSPY_PROXIES
+        sync: false
+      # Optional bearer token (advanced). Leave unset to rely on the secret path only.
+      - key: MCP_AUTH_TOKEN
+        sync: false

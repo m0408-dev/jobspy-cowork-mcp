@@ -1,0 +1,50 @@
+#cloud-config
+# Oracle Cloud "Always Free" bootstrap for the JobSpy Cowork MCP server.
+#
+# Paste this whole file into the instance's "Initialization script" field
+# (Console: Create Instance -> Advanced options -> Management -> Initialization script).
+# The console base64-encodes it for you automatically.
+#
+# Before pasting, replace GITHUB_USER below with your actual GitHub username.
+#
+# What this does on first boot:
+#   1. Fixes Oracle's Ubuntu-image iptables, which drops ports 80/443 by default -
+#      new ACCEPT rules must be INSERTED before the existing REJECT rule, not appended,
+#      or they're silently ignored.
+#   2. Installs Caddy (automatic HTTPS reverse proxy) and Docker.
+#   3. Clones this repo and runs the MCP server container on localhost:8000 only -
+#      Caddy is the sole public-facing process, terminating TLS.
+#
+# You still need to (after the VM boots and you have its public IP):
+#   - Open ingress 80/443 in the VCN's Security List / NSG (separate from the OS firewall -
+#     Oracle has both layers; this script only handles the OS layer).
+#   - Point Caddy at "<public-ip>.sslip.io" (see deploy/caddy-setup.sh) so it can get a
+#     Let's Encrypt certificate without needing a real domain name.
+
+package_update: true
+packages:
+  - docker.io
+  - git
+  - curl
+  - iptables-persistent
+
+runcmd:
+  # --- OS firewall: insert ACCEPT rules before the default REJECT (position matters!) ---
+  - iptables -I INPUT 6 -p tcp --dport 80 -j ACCEPT
+  - iptables -I INPUT 6 -p tcp --dport 443 -j ACCEPT
+  - netfilter-persistent save
+
+  # --- Caddy (official apt repo) ---
+  - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+  - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' -o /etc/apt/sources.list.d/caddy-stable.list
+  - apt-get update
+  - apt-get install -y caddy
+
+  # --- App container (only bound to localhost; Caddy is the public face) ---
+  - systemctl enable --now docker
+  - git clone https://github.com/GITHUB_USER/jobspy-cowork-mcp.git /opt/jobspy-cowork-mcp
+  - >
+    docker run -d --restart unless-stopped --name jobspy
+    -p 127.0.0.1:8000:8000
+    -e MCP_TRANSPORT=http -e MCP_HTTP_PATH=/mcp-CHANGE-ME-9f3a2b/
+    $(cd /opt/jobspy-cowork-mcp && docker build -q .)
