@@ -69,15 +69,23 @@ def _strip_html(text: Any, limit: int = 1500) -> str | None:
     return s or None
 
 
-def _matches(job: dict[str, Any], term: str) -> bool:
-    """Case-insensitive keyword match over title+company+description (for feeds without search)."""
-    if not term:
+def _tokens(term: str) -> list[str]:
+    """Significant (len>2) lower-case tokens of a query."""
+    return [t for t in term.lower().split() if len(t) > 2]
+
+
+def _match_any(job: dict[str, Any], term: str) -> bool:
+    """Keep a job if ANY significant query token appears in title+company+description.
+
+    Feeds like RemoteOK / Arbeitnow have no (or coarse) server-side search, so we filter
+    locally. ANY-token (OR) semantics are deliberately forgiving: 'python developer' should
+    still surface a 'Senior Python Engineer', not just exact 'Python Developer' titles.
+    """
+    toks = _tokens(term)
+    if not toks:
         return True
-    hay = " ".join(
-        str(job.get(k) or "") for k in ("title", "company", "description")
-    ).lower()
-    # Require every whitespace-separated token to appear (AND semantics, forgiving on order).
-    return all(tok in hay for tok in term.lower().split())
+    hay = " ".join(str(job.get(k) or "") for k in ("title", "company", "description")).lower()
+    return any(tok in hay for tok in toks)
 
 
 def _salary(lo: Any, hi: Any, cur: Any = None, period: str | None = None) -> str | None:
@@ -116,6 +124,16 @@ async def fetch_arbeitsagentur(
     )
     r.raise_for_status()
     data = r.json()
+    # English/phrase queries often miss the German DB (listings say "Python-Entwickler").
+    # If a multi-word term yields nothing, retry with the single most significant token.
+    if not data.get("stellenangebote") and len(_tokens(term)) > 1:
+        params["was"] = max(_tokens(term), key=len)
+        r = await client.get(
+            "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/app/jobs",
+            params=params, headers={**_HEADERS, "X-API-Key": "jobboerse-jobsuche"},
+        )
+        r.raise_for_status()
+        data = r.json()
     out: list[dict[str, Any]] = []
     for j in data.get("stellenangebote", [])[:limit]:
         ort = j.get("arbeitsort") or {}
@@ -191,14 +209,17 @@ async def fetch_remoteok(
     client: httpx.AsyncClient, term: str, location: str | None,
     remote_only: bool, limit: int, days: int,
 ) -> list[dict[str, Any]]:
-    # RemoteOK returns a flat array; element 0 is a legal-notice object, not a job.
-    r = await client.get("https://remoteok.com/api", headers=_HEADERS)
+    # RemoteOK supports a server-side ?tags= filter; use the primary skill token.
+    toks = _tokens(term)
+    params = {"tags": toks[0]} if toks else {}
+    # Flat array; element 0 is a legal-notice object, not a job.
+    r = await client.get("https://remoteok.com/api", params=params, headers=_HEADERS)
     r.raise_for_status()
     out: list[dict[str, Any]] = []
     for j in r.json():
         if not isinstance(j, dict) or not j.get("position"):
             continue
-        job = {
+        out.append({
             "source": "remoteok",
             "title": j.get("position"),
             "company": j.get("company"),
@@ -208,9 +229,7 @@ async def fetch_remoteok(
             "salary": _salary(j.get("salary_min"), j.get("salary_max"), "USD", "year"),
             "job_url": j.get("url") or (f"https://remoteok.com/l/{j.get('id')}" if j.get("id") else None),
             "description": _strip_html(j.get("description")),
-        }
-        if _matches(job, term):
-            out.append(job)
+        })
         if len(out) >= limit:
             break
     return out
@@ -238,7 +257,7 @@ async def fetch_arbeitnow(
             "job_url": j.get("url"),
             "description": _strip_html(j.get("description")),
         }
-        if _matches(job, term):
+        if _match_any(job, term):
             out.append(job)
         if len(out) >= limit:
             break
