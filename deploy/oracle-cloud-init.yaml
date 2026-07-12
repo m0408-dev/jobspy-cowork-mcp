@@ -29,18 +29,20 @@ packages:
   - iptables-persistent
 
 runcmd:
-  # --- OS firewall: insert ACCEPT rules before the default REJECT (position matters!) ---
-  - iptables -I INPUT 6 -p tcp --dport 80 -j ACCEPT
-  - iptables -I INPUT 6 -p tcp --dport 443 -j ACCEPT
+  # --- OS firewall: INSERT accept rules at the top so they precede the image's
+  #     default REJECT rule. Inserting without an explicit index = position 1,
+  #     which is always before the REJECT (appending or a fixed index can miss it). ---
+  - iptables -I INPUT -p tcp -m multiport --dports 80,443 -j ACCEPT
   - netfilter-persistent save
 
-  # --- Caddy (official apt repo) ---
-  - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+  # --- Caddy (official apt repo). The published key is ASCII-armored, so it MUST be
+  #     dearmored into a binary keyring or apt reports NO_PUBKEY and refuses the repo. ---
+  - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
   - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' -o /etc/apt/sources.list.d/caddy-stable.list
   - apt-get update
   - apt-get install -y caddy
 
-  # --- App container (only bound to localhost; Caddy is the public face) ---
+  # --- App container (bound to localhost only; Caddy is the sole public face) ---
   - systemctl enable --now docker
   - git clone https://github.com/m0408-dev/jobspy-cowork-mcp.git /opt/jobspy-cowork-mcp
   - >
@@ -48,3 +50,11 @@ runcmd:
     -p 127.0.0.1:8000:8000
     -e MCP_TRANSPORT=http -e MCP_HTTP_PATH=REPLACE_WITH_YOUR_SECRET_PATH
     $(cd /opt/jobspy-cowork-mcp && docker build -q .)
+
+  # --- Watchdog: restart the container if the app hangs (health check fails).
+  #     --restart unless-stopped only covers crashes, not hangs. ---
+  - >
+    printf '#!/bin/sh\ncurl -fsS -m5 http://127.0.0.1:8000/health >/dev/null 2>&1 || docker restart jobspy\n' > /usr/local/bin/jobspy-watchdog.sh
+  - chmod +x /usr/local/bin/jobspy-watchdog.sh
+  - >
+    (crontab -l 2>/dev/null; echo '*/2 * * * * /usr/local/bin/jobspy-watchdog.sh') | crontab -

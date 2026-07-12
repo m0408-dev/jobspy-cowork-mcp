@@ -23,6 +23,9 @@ import json
 import logging
 import math
 import os
+import threading
+import time
+from collections import defaultdict
 from typing import Annotated, Any, Literal
 
 import pandas as pd
@@ -77,6 +80,29 @@ DEFAULT_PROXIES: list[str] | None = (
 # Claude tool results are capped around 150k characters — stay comfortably under it.
 MAX_RESULT_CHARS = int(os.getenv("MAX_RESULT_CHARS", "140000"))
 MAX_DESC_CHARS = int(os.getenv("MAX_DESC_CHARS", "1800"))
+
+# --- Abuse / resource protection (matters when the endpoint is public) -----
+# Per-IP request budget (token bucket over a 60s window) enforced by ASGI middleware.
+RATE_LIMIT_PER_MIN = int(os.getenv("RATE_LIMIT_PER_MIN", "40"))
+# Cap concurrent JobSpy scrapes — they are heavy AND share ONE datacenter IP, so
+# unbounded parallelism is what gets that IP rate-limited/banned by Indeed/LinkedIn.
+# threading (not asyncio) so it also bounds the sync search_jobs tool, which FastMCP
+# runs in a worker thread. Non-blocking acquire → fail fast instead of piling up.
+JOBSPY_CONCURRENCY = int(os.getenv("JOBSPY_CONCURRENCY", "1"))
+_JOBSPY_LOCK = threading.BoundedSemaphore(max(1, JOBSPY_CONCURRENCY))
+
+
+def _run_scrape(**kwargs: Any):
+    """Run JobSpy under the concurrency cap; fail fast if the slot is busy."""
+    if not _JOBSPY_LOCK.acquire(timeout=2):
+        raise RuntimeError(
+            "Scraper busy (too many concurrent Indeed/LinkedIn requests). "
+            "Retry shortly, or use the API sources via search_all_jobs(include_jobspy=false)."
+        )
+    try:
+        return scrape_jobs(**kwargs)
+    finally:
+        _JOBSPY_LOCK.release()
 
 SITES = ["indeed", "linkedin", "glassdoor", "google", "zip_recruiter", "bayt", "naukri", "bdjobs"]
 SiteName = Literal["indeed", "linkedin", "glassdoor", "google", "zip_recruiter", "bayt", "naukri", "bdjobs"]
@@ -214,7 +240,7 @@ def search_jobs(
     )
 
     try:
-        df = scrape_jobs(
+        df = _run_scrape(
             site_name=sites,
             search_term=search_term,
             google_search_term=google_search_term or f"{search_term} jobs near {location}",
@@ -376,8 +402,8 @@ async def search_all_jobs(
         int, Field(ge=0, le=100, description="Only jobs newer than N days. 0 = no filter.")
     ] = 30,
     include_jobspy: Annotated[
-        bool, Field(description="Also scrape Indeed + LinkedIn (richer but slower ~30-60s). Set false for a fast API-only search.")
-    ] = True,
+        bool, Field(description="Also scrape Indeed + LinkedIn (richer but slower ~30-60s, and shares one IP so it's rate-capped). Default off; enable for a deeper sweep.")
+    ] = False,
     sources: Annotated[
         list[ApiSource] | None,
         Field(description="Restrict which free APIs to hit. Default = all nine. See list_job_sources."),
@@ -404,7 +430,7 @@ async def search_all_jobs(
     if include_jobspy:
         try:
             df = await asyncio.to_thread(
-                scrape_jobs,
+                _run_scrape,
                 site_name=["indeed", "linkedin"],
                 search_term=search_term,
                 location=location,
@@ -486,8 +512,57 @@ async def search_remote_jobs(
     return _render_aggregate(jobs, meta, response_format=response_format)
 
 
-# ASGI app so production hosts can run `uvicorn server:app` if they prefer.
-app = mcp.http_app(path=HTTP_PATH)
+class _RateLimit:
+    """Pure-ASGI per-IP rate limiter. SSE-safe: it decides before the app runs and
+    never wraps the response stream. Reads the real client IP from X-Forwarded-For
+    (set by the Caddy reverse proxy). In-memory sliding window — fine for one instance.
+    """
+
+    def __init__(self, inner: Any, per_min: int) -> None:
+        self.inner = inner
+        self.per_min = per_min
+        self.hits: dict[str, list[float]] = defaultdict(list)
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if scope["type"] != "http" or self.per_min <= 0:
+            return await self.inner(scope, receive, send)
+        if scope.get("path", "").rstrip("/").endswith("/health"):
+            return await self.inner(scope, receive, send)
+
+        headers = dict(scope.get("headers") or [])
+        xff = headers.get(b"x-forwarded-for", b"").decode()
+        ip = (xff.split(",")[0].strip() if xff else "") or (scope.get("client") or ["?"])[0]
+
+        now = time.monotonic()
+        cutoff = now - 60.0
+        window = self.hits[ip]
+        drop = 0
+        while drop < len(window) and window[drop] < cutoff:
+            drop += 1
+        if drop:
+            del window[:drop]
+
+        if len(window) >= self.per_min:
+            body = json.dumps({
+                "error": "rate_limit_exceeded",
+                "limit_per_min": self.per_min,
+                "hint": "Slow down. For heavy/continuous use, self-host your own free instance "
+                        "(see the repo README) so you're not sharing one datacenter IP.",
+            }).encode()
+            await send({"type": "http.response.start", "status": 429,
+                        "headers": [(b"content-type", b"application/json"), (b"retry-after", b"30")]})
+            await send({"type": "http.response.body", "body": body})
+            return
+
+        window.append(now)
+        if len(self.hits) > 4096:  # opportunistic cleanup so the map can't grow unbounded
+            for k in [k for k, v in self.hits.items() if not v or v[-1] < cutoff]:
+                self.hits.pop(k, None)
+        return await self.inner(scope, receive, send)
+
+
+# ASGI app (rate-limited) so production hosts can run `uvicorn server:app`.
+app = _RateLimit(mcp.http_app(path=HTTP_PATH), RATE_LIMIT_PER_MIN)
 
 
 def main() -> None:
@@ -495,8 +570,12 @@ def main() -> None:
         log.info("Starting JobSpy MCP over stdio (local mode)")
         mcp.run(transport="stdio")
     else:
-        log.info("Starting JobSpy MCP over Streamable HTTP at http://%s:%d%s", HOST, PORT, HTTP_PATH)
-        mcp.run(transport="http", host=HOST, port=PORT, path=HTTP_PATH)
+        import uvicorn
+        log.info(
+            "Starting JobSpy MCP (hardened) at http://%s:%d%s  [rate=%d/min/IP, jobspy_concurrency=%d]",
+            HOST, PORT, HTTP_PATH, RATE_LIMIT_PER_MIN, JOBSPY_CONCURRENCY,
+        )
+        uvicorn.run(app, host=HOST, port=PORT)
 
 
 if __name__ == "__main__":
