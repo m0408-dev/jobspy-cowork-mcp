@@ -125,9 +125,11 @@ async def fetch_arbeitsagentur(
     r.raise_for_status()
     data = r.json()
     # English/phrase queries often miss the German DB (listings say "Python-Entwickler").
-    # If a multi-word term yields nothing, retry with the single most significant token.
+    # If a multi-word term yields nothing, retry with the primary skill token and widen the
+    # window (the remote-only German pool is small, so a tight date filter zeroes it out).
     if not data.get("stellenangebote") and len(_tokens(term)) > 1:
-        params["was"] = max(_tokens(term), key=len)
+        params["was"] = _tokens(term)[0]
+        params.pop("veroeffentlichtseit", None)
         r = await client.get(
             "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/app/jobs",
             params=params, headers={**_HEADERS, "X-API-Key": "jobboerse-jobsuche"},
