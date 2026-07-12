@@ -6,7 +6,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY server.py sources.py .
+COPY server.py sources.py ./
 
 # Cloud/Cowork defaults. HOST/PORT are usually overridden by the platform ($PORT).
 ENV MCP_TRANSPORT=http \
