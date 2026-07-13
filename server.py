@@ -47,7 +47,7 @@ except ImportError as exc:  # pragma: no cover
 # (Arbeitsagentur, Himalayas, Remotive, RemoteOK, Arbeitnow, Jobicy).
 from sources import (  # noqa: E402
     API_SOURCES, REMOTE_SOURCES, SOURCE_INFO, fetch_sources, _dedup_key,
-    looks_like_job, looks_remote, date_ordinal,
+    looks_like_job, looks_remote, date_ordinal, remote_confidence,
 )
 
 ApiSource = Literal[
@@ -140,8 +140,14 @@ mcp = FastMCP(
         "'Helpdesk', 'Application Support', '1st/2nd Level Support', 'Fachinformatiker'); synonyms are "
         "matched automatically. `remote_only=true` returns Home-Office roles. Optional `dach_only` "
         "(default OFF) pre-drops jobs restricted to non-European regions if you want less noise. "
-        "`search_remote_jobs` = remote APIs only; `search_jobs` = direct JobSpy. Call `list_job_sources` "
-        "to pick `sources=[...]`. Result: {count, returned, fetched_per_source, jobs:[...]}."
+        "IMPORTANT for a strict 100%-remote hunt: `is_remote` only means the SOURCE calls it remote — "
+        "many are remote-first with mandatory office days. Use the per-job `remote_confidence` field "
+        "instead: 'strict' = explicitly 100%/fully remote; 'likely' = remote-tagged, no onsite wording "
+        "(confirm in the posting); 'hybrid' = has an onsite/Präsenz/relocation obligation → drop for a "
+        "100%-remote filter; 'mixed' = says both, read it. Postings can also be expired — check "
+        "date_posted (results are sorted newest-first). `search_remote_jobs` = remote APIs only; "
+        "`search_jobs` = direct JobSpy. Call `list_job_sources` to pick `sources=[...]`. "
+        "Result: {count, returned, fetched_per_source, jobs:[...]}."
     ),
     auth=auth,
 )
@@ -308,6 +314,7 @@ def search_jobs(
         if dk in seen_keys:
             continue
         seen_keys.add(dk)
+        job["remote_confidence"] = remote_confidence(job)   # 100%-remote hint (strict/likely/hybrid/mixed)
         if not include_description:
             job.pop("description", None)
         elif job.get("description"):
@@ -345,7 +352,7 @@ def _jobspy_to_common(rec: dict[str, Any]) -> dict[str, Any]:
     if lo or hi:
         salary = (f"{int(lo)}-{int(hi)}" if lo and hi else str(int(lo or hi))) + (f" {cur}" if cur else "")
     desc = rec.get("description")
-    return {
+    job = {
         "source": rec.get("site") or "jobspy",
         "title": rec.get("title"),
         "company": rec.get("company"),
@@ -357,6 +364,8 @@ def _jobspy_to_common(rec: dict[str, Any]) -> dict[str, Any]:
         "description": (str(desc)[:MAX_DESC_CHARS] + " …[truncated]") if desc and len(str(desc)) > MAX_DESC_CHARS
                        else (str(desc) if desc else None),
     }
+    job["remote_confidence"] = remote_confidence(job)
+    return job
 
 
 # In "concise" mode we drop the heavy/optional fields so many more jobs fit under the

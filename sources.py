@@ -194,6 +194,45 @@ def date_ordinal(job: dict[str, Any]) -> int:
     return d.toordinal() if d else 0
 
 
+# Onsite / hybrid obligations that disqualify a TRUE 100%-remote role even when the post also
+# says "remote" (remote-first with mandatory office days, relocation, occasional on-site, …).
+_HYBRID_KW = re.compile(
+    r"\b(hybrid|hybride[rsn]?|teil(?:weise|s)?\s*remote|teilremote|vor[-\s]?ort|on[-\s]?site|"
+    r"präsenz|praesenz|anwesenheit(?:spflicht)?|im\s+b[üu]ro|ins\s+b[üu]ro|"
+    r"\d\s*tage?\s*(?:pro\s*woche\s*)?(?:im\s*)?(?:b[üu]ro|office|vor\s*ort)|"
+    r"relocation|umzug|gelegentlich\s+vor\s+ort|occasional(?:ly)?\s+on[-\s]?site)\b",
+    re.IGNORECASE,
+)
+# Strong signals of a genuinely location-independent role.
+_STRICT_KW = re.compile(
+    r"(100\s*%?\s*(?:remote|home\s?office|homeoffice)|fully\s+remote|full[-\s]?remote|remote[-\s]?only|"
+    r"vollst[äa]ndig\s+remote|komplett\s+remote|voll\s*remote|work\s+from\s+anywhere|ortsunabh[äa]ngig|"
+    r"dauerhaft\s+(?:remote|home\s?office))",
+    re.IGNORECASE,
+)
+
+
+def remote_confidence(job: dict[str, Any]) -> str:
+    """Heuristic label so the caller can filter 100%-remote WITHOUT opening every posting:
+      'strict' – explicitly 100% / fully remote / work-from-anywhere (no onsite signal)
+      'hybrid' – mentions onsite/hybrid/relocation/Präsenz obligation → NOT a 100% remote role
+      'mixed'  – says both strict-remote AND an onsite signal → read it to be sure
+      'likely' – source says remote but no explicit onsite/strict wording (read to confirm)
+    Onsite obligations win over 'remote-first' wording, because that is exactly what disqualifies
+    a true 100%-remote search. Heuristic on title+description — ambiguous posts still need a read;
+    AA list results have no description, so most land on 'likely'."""
+    hay = " ".join(str(job.get(k) or "") for k in ("title", "description", "location")).lower()
+    hybrid = bool(_HYBRID_KW.search(hay))
+    strict = bool(_STRICT_KW.search(hay))
+    if strict and hybrid:
+        return "mixed"
+    if hybrid:
+        return "hybrid"
+    if strict:
+        return "strict"
+    return "likely"
+
+
 def _salary(lo: Any, hi: Any, cur: Any = None, period: str | None = None) -> str | None:
     lo = lo or None
     hi = hi or None
@@ -601,6 +640,8 @@ async def fetch_sources(
                 jobs = [j for j in jobs if looks_like_job(j)]                        # BUG6
                 if dach_only and name not in ("arbeitsagentur", "arbeitnow"):        # BUG5 (DE-native kept)
                     jobs = [j for j in jobs if dach_ok(j.get("location"))]
+                for j in jobs:                                                       # 100%-remote hint
+                    j["remote_confidence"] = remote_confidence(j)
                 meta[name] = len(jobs)
                 return jobs
             except Exception as exc:  # noqa: BLE001 — one bad source must not sink the rest
