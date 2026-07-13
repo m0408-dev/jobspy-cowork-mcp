@@ -290,13 +290,16 @@ def search_jobs(
         if not looks_like_job(job):
             continue
         # BUG4: JobSpy's is_remote filter is unreliable → enforce it ourselves. Keep a job only
-        # if it is flagged remote OR the title/description says home office / remote.
-        if is_remote and not (
-            job.get("is_remote") is True
-            or looks_remote(job.get("title"))
-            or looks_remote(job.get("description"))
-        ):
-            continue
+        # if it is flagged remote OR the title/description says home office / remote, and then
+        # normalise the flag to True so the returned is_remote is consistent with the filter.
+        if is_remote:
+            if not (
+                job.get("is_remote") is True
+                or looks_remote(job.get("title"))
+                or looks_remote(job.get("description"))
+            ):
+                continue
+            job["is_remote"] = True
         if not include_description:
             job.pop("description", None)
         elif job.get("description"):

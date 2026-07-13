@@ -69,9 +69,11 @@ _NON_JOB = re.compile(
 )
 # Location strings that clearly restrict to a NON-DACH / non-European region (BUG5).
 _NON_DACH = re.compile(
-    r"\b(usa|u\.s\.a?\.?|united\s+states|us\s+only|canada|australia|new\s+zealand|philippines|"
-    r"india|pakistan|bangladesh|brazil|brasil|argentina|mexico|colombia|latam|apac|"
-    r"singapore|indonesia|nigeria|kenya|south\s+africa|uae|dubai|japan|china)\b",
+    r"\b(usa|u\.s\.a?\.?|united\s+states|us\s+only|remote\s*[-(]?\s*us|canada|australia|new\s+zealand|"
+    r"philippines|india|pakistan|bangladesh|brazil|brasil|argentina|mexico|colombia|latam|apac|"
+    r"singapore|indonesia|nigeria|kenya|south\s+africa|uae|dubai|japan|china|"
+    r"new\s+york|san\s+francisco|los\s+angeles|toronto|bangalore|bengaluru|manila|"
+    r"são\s+paulo|sao\s+paulo|sydney|melbourne|austin|seattle|chicago|boston)\b",
     re.IGNORECASE,
 )
 _DACH_OK = re.compile(
