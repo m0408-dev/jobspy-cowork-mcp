@@ -18,9 +18,11 @@ weworkremotely, themuse (themuse kept but OUT of the default set — weak for DA
 from __future__ import annotations
 
 import asyncio
+import datetime as _dt
 import html
 import logging
 import re
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 import httpx
@@ -159,6 +161,37 @@ def dach_ok(location: str | None) -> bool:
     return True
 
 
+def _recent(date_posted: Any, days: int) -> bool:
+    """Freshness gate (BUG1): keep a job unless we can CONFIDENTLY parse its posting date as
+    older than `days`. Undated / unparseable dates are kept (recall-first — never over-drop).
+    Only unambiguously stale postings (e.g. a 2024 ad on a 7-day search) are removed, because an
+    expired listing is a dead link the downstream AI cannot rescue — that is noise, not recall."""
+    if not days or days <= 0 or not date_posted:
+        return True
+    s = str(date_posted).strip()
+    if not s:
+        return True
+    dt: _dt.date | None = None
+    if s.isdigit() and len(s) >= 10:                       # unix epoch (e.g. arbeitnow created_at)
+        try:
+            dt = _dt.datetime.utcfromtimestamp(int(s[:10])).date()
+        except (ValueError, OverflowError):
+            dt = None
+    if dt is None:
+        try:
+            dt = _dt.date.fromisoformat(s[:10])            # ISO date / datetime prefix
+        except ValueError:
+            try:
+                parsed = parsedate_to_datetime(s)          # RFC-822 (RSS pubDate)
+                dt = parsed.date() if parsed else None
+            except (TypeError, ValueError, IndexError):
+                dt = None
+    if dt is None:
+        return True                                        # unknown format → keep, don't over-drop
+    age = (_dt.date.today() - dt).days
+    return age <= days + 1                                 # +1 day slack for timezones
+
+
 def _salary(lo: Any, hi: Any, cur: Any = None, period: str | None = None) -> str | None:
     lo = lo or None
     hi = hi or None
@@ -233,10 +266,16 @@ async def fetch_arbeitsagentur(
         if not data.get("stellenangebote") and len(_tokens(term)) > 1:
             data = await _query({**base, "was": _tokens(term)[0], "arbeitszeit": "ho"})
         _add(_aa_records(data, remote_only=True, limit=limit))
-        # 2) Broad query, keep only titles that mention home office / remote (extra recall).
+        # 2) Broad query, keep titles that mention home office / remote AND at least loosely
+        #    match the search term (BUG2: without the term gate this pulled in ANY remote job,
+        #    e.g. Handelsvertreter for "IT-Support"). The term gate is the same generous
+        #    ANY-token/synonym match used everywhere else — recall-first, just on-topic.
         if len(results) < limit:
             broad = await _query({**base, "was": term, "size": 100})
-            kw = [r for r in _aa_records(broad, remote_only=False, limit=100) if looks_remote(r.get("title"))]
+            kw = [
+                r for r in _aa_records(broad, remote_only=False, limit=100)
+                if looks_remote(r.get("title")) and _match_any(r, term)
+            ]
             for r in kw:
                 r["is_remote"] = True
             _add(kw)
@@ -558,6 +597,8 @@ async def fetch_sources(
                     kwargs["geo"] = "germany"
                 jobs = await _FETCHERS[name](client, term, location, remote_only, limit_per_source, days, **kwargs)
                 jobs = [j for j in jobs if looks_like_job(j)]                        # BUG6
+                if days and days > 0:                                                # BUG1 freshness
+                    jobs = [j for j in jobs if _recent(j.get("date_posted"), days)]
                 if dach_only and name not in ("arbeitsagentur", "arbeitnow"):        # BUG5 (DE-native kept)
                     jobs = [j for j in jobs if dach_ok(j.get("location"))]
                 meta[name] = len(jobs)

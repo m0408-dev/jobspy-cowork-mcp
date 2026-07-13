@@ -285,6 +285,7 @@ def search_jobs(
     records = _dataframe_to_records(df)
 
     jobs: list[dict[str, Any]] = []
+    seen_keys: set[tuple[str, str]] = set()
     for rec in records:
         job = {key: rec.get(key) for key in KEEP_COLUMNS if key in rec}
         # BUG6: drop obvious non-jobs (blog/webinar/article) that JobSpy sometimes returns.
@@ -301,6 +302,12 @@ def search_jobs(
             ):
                 continue
             job["is_remote"] = True
+        # BUG4b: JobSpy returns the same posting several times (Indeed/LinkedIn emit one row per
+        # URL locale variant). Dedup by normalised title+company so a job appears once.
+        dk = _dedup_key(job)
+        if dk in seen_keys:
+            continue
+        seen_keys.add(dk)
         if not include_description:
             job.pop("description", None)
         elif job.get("description"):
