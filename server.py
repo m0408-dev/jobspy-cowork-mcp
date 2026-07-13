@@ -131,16 +131,17 @@ mcp = FastMCP(
     name="JobSpy Job Search",
     instructions=(
         "Job-posting search tuned for DACH (Germany/Austria/Switzerland), German-language IT/support "
-        "roles and 100% Homeoffice. Prefer `search_all_jobs` — it queries Arbeitsagentur (official DE "
-        "DB), the remote APIs (Himalayas, Remotive, RemoteOK, Arbeitnow, Jobicy, HackerNews, "
-        "WeWorkRemotely) and optionally Indeed+LinkedIn in parallel, deduped. For German-language "
-        "roles use German search terms ('IT-Support', 'Systemadministrator', 'Helpdesk', 'Application "
-        "Support', '1st/2nd Level Support', 'Fachinformatiker'); synonyms are matched automatically. "
-        "`remote_only=true` on `search_german_jobs`/`search_all_jobs` returns real Home-Office roles; "
-        "`dach_only` (on by default) drops jobs restricted to non-European regions. `search_remote_jobs` "
-        "= remote APIs only; `search_jobs` = direct JobSpy (its is_remote is enforced server-side). "
-        "Call `list_job_sources` to pick `sources=[...]`. Result: {count, returned, fetched_per_source, "
-        "jobs:[...]} — count is the number of jobs returned; fetched_per_source is pre-dedup."
+        "roles and 100% Homeoffice. RECALL-FIRST: these tools cast a wide net and return generously — "
+        "YOU are the classifier. Expect some off-topic hits and rank/drop them yourself; do NOT assume "
+        "'no results' unless a tool truly returns count 0. Prefer `search_all_jobs` — it queries "
+        "Arbeitsagentur (official DE DB), the remote APIs (Himalayas, Remotive, RemoteOK, Arbeitnow, "
+        "Jobicy, HackerNews, WeWorkRemotely, The Muse) and optionally Indeed+LinkedIn in parallel, "
+        "deduped. Use German search terms for German roles ('IT-Support', 'Systemadministrator', "
+        "'Helpdesk', 'Application Support', '1st/2nd Level Support', 'Fachinformatiker'); synonyms are "
+        "matched automatically. `remote_only=true` returns Home-Office roles. Optional `dach_only` "
+        "(default OFF) pre-drops jobs restricted to non-European regions if you want less noise. "
+        "`search_remote_jobs` = remote APIs only; `search_jobs` = direct JobSpy. Call `list_job_sources` "
+        "to pick `sources=[...]`. Result: {count, returned, fetched_per_source, jobs:[...]}."
     ),
     auth=auth,
 )
@@ -418,8 +419,8 @@ async def search_all_jobs(
     ] = "Germany",
     remote_only: Annotated[bool, Field(description="Only remote positions.")] = False,
     results_per_source: Annotated[
-        int, Field(ge=1, le=50, description="How many results to pull from each source before dedup.")
-    ] = 15,
+        int, Field(ge=1, le=50, description="How many results to pull from each source before dedup. Higher = more recall.")
+    ] = 25,
     days_old: Annotated[
         int, Field(ge=0, le=100, description="Only jobs newer than N days. 0 = no filter.")
     ] = 30,
@@ -435,10 +436,13 @@ async def search_all_jobs(
         Field(description="concise = title/company/location/url (fits many more jobs — best for a first sweep); detailed = also description/salary/date."),
     ] = "concise",
     dach_only: Annotated[
-        bool, Field(description="DACH filter (default on): drop remote jobs restricted to non-European regions (US/AU/IN/PH/BR only). Worldwide/Europe/unknown are kept. Set false for a global search."),
-    ] = True,
+        bool, Field(description="Optional DACH pre-filter (default OFF — return broadly, you classify). Set true to drop jobs explicitly restricted to non-European regions (US/AU/IN/PH/BR only)."),
+    ] = False,
 ) -> str:
     """MOST POWERFUL search — the best default for a real job hunt (tuned for DACH).
+
+    Recall-first by design: it casts a wide net and returns generously — YOU (the calling AI)
+    classify / rank / drop the irrelevant ones. Better too many results than too few.
 
     Queries in parallel: Germany's official federal job database (Arbeitsagentur), the remote-job
     APIs (Himalayas, Remotive, RemoteOK, Arbeitnow, Jobicy, HackerNews, WeWorkRemotely) and,
@@ -517,7 +521,7 @@ async def search_german_jobs(
 @mcp.tool
 async def search_remote_jobs(
     search_term: Annotated[str, Field(description="Keywords, e.g. 'react developer' or 'sre'.")],
-    results_per_source: Annotated[int, Field(ge=1, le=50, description="Results per API before dedup.")] = 20,
+    results_per_source: Annotated[int, Field(ge=1, le=50, description="Results per API before dedup. Higher = more recall.")] = 25,
     sources: Annotated[
         list[Literal["himalayas", "remotive", "remoteok", "arbeitnow", "jobicy", "hackernews", "weworkremotely", "themuse"]] | None,
         Field(description="Which remote APIs to hit. Default = all eight remote sources."),
@@ -527,8 +531,8 @@ async def search_remote_jobs(
         Field(description="concise = compact (more jobs fit); detailed = with descriptions/salary."),
     ] = "concise",
     dach_only: Annotated[
-        bool, Field(description="DACH filter (default on): drop jobs restricted to non-European regions. Set false for a global search."),
-    ] = True,
+        bool, Field(description="Optional DACH pre-filter (default OFF — return broadly, you classify). Set true to drop jobs restricted to non-European regions."),
+    ] = False,
 ) -> str:
     """Aggregate remote jobs across Himalayas, Remotive, RemoteOK, Arbeitnow, Jobicy,
     HackerNews 'Who is hiring' and WeWorkRemotely (The Muse only if explicitly requested).

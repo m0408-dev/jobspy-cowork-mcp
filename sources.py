@@ -27,13 +27,13 @@ import httpx
 
 log = logging.getLogger("jobspy-mcp.sources")
 
-# Default aggregated set. themuse removed (BUG7: constant 0 for DACH — kept selectable).
+# Default aggregated set — all sources on (recall-first; the AI classifies downstream).
 API_SOURCES = [
     "arbeitsagentur", "himalayas", "remotive", "remoteok",
-    "arbeitnow", "jobicy", "hackernews", "weworkremotely",
+    "arbeitnow", "jobicy", "hackernews", "weworkremotely", "themuse",
 ]
-# Remote-first sources used by search_remote_jobs (also without themuse).
-REMOTE_SOURCES = ["himalayas", "remotive", "remoteok", "arbeitnow", "jobicy", "hackernews", "weworkremotely"]
+# Remote-first sources used by search_remote_jobs.
+REMOTE_SOURCES = ["himalayas", "remotive", "remoteok", "arbeitnow", "jobicy", "hackernews", "weworkremotely", "themuse"]
 
 SOURCE_INFO: dict[str, dict[str, str]] = {
     "arbeitsagentur": {"coverage": "Germany (largest official DB)", "remote": "arbeitszeit=ho + keyword", "auth": "free public client-id"},
@@ -61,10 +61,10 @@ REMOTE_KW = re.compile(
     r"home\s?office|homeoffice|remote|mobiles?\s+arbeiten|telearbeit|fully\s+remote|100\s*%\s*remote|remote[-\s]?first",
     re.IGNORECASE,
 )
-# Titles that are articles / webinars / content, not job postings (BUG6).
+# Titles that are clearly content, not job postings (BUG6). Kept minimal on purpose so we
+# never drop a real job (e.g. 'Tour Guide', 'Studienberater') — only unambiguous non-jobs.
 _NON_JOB = re.compile(
-    r"\b(webinar|whitepaper|white\s?paper|e-?book|newsletter|blog|artikel|article|podcast|"
-    r"leitfaden|ratgeber|checkliste|studie|case\s?study|guide)\b",
+    r"\b(webinar|whitepaper|white\s?paper|e-?book|newsletter|blog(?:post|beitrag)?|podcast)\b",
     re.IGNORECASE,
 )
 # Location strings that clearly restrict to a NON-DACH / non-European region (BUG5).
@@ -123,18 +123,15 @@ def _hit(hay: str, tok: str) -> bool:
 
 
 def _match_any(job: dict[str, Any], term: str) -> bool:
-    """Keep a job only if a MAJORITY of the query's significant tokens match (whole-word,
-    synonym-expanded) in title/company/location/description. BUG2: a nonsense query like
-    'qxzykw-nonsense-term-9931' contains the real word 'term' — ANY-token would leak on it;
-    requiring ceil(n/2) tokens means one incidental word is not enough → nonsense → ~0."""
+    """Recall-first relevance gate: keep a job if ANY significant (synonym-expanded) query
+    token matches as a whole word in title/company/location/description. Deliberately GENEROUS
+    — an AI classifies the results downstream, so it is better to return too many than too few.
+    Only jobs that match nothing at all (e.g. a pure-gibberish query) are dropped."""
     toks = [t for t in _tokens(term) if len(t) >= 3 and not t.isdigit()]
-    if not toks:  # very short/1-2 char queries: fall back to all non-numeric tokens
-        toks = [t for t in _tokens(term) if not t.isdigit()]
-    if not toks:
+    if not toks:  # very short / 1-2 char queries → don't filter, let everything through
         return True
     hay = " ".join(str(job.get(k) or "") for k in ("title", "company", "location", "description")).lower()
-    matched = sum(1 for t in toks if _hit(hay, t))
-    return matched >= (len(toks) + 1) // 2
+    return any(_hit(hay, t) for t in toks)
 
 
 def looks_like_job(job: dict[str, Any]) -> bool:
@@ -254,9 +251,9 @@ async def fetch_arbeitsagentur(
             data = await _query(params)
         _add(_aa_records(data, remote_only=False, limit=limit))
 
-    # Arbeitsagentur's server-side `was` search is fuzzy (matches 'IT' inside sales roles);
-    # apply the same relevance filter as the other sources to drop off-topic hits.
-    return [r for r in results if _match_any(r, term)][:limit]
+    # Return generously — Arbeitsagentur's server-side `was` search is the filter; the AI
+    # downstream classifies. (No extra client-side relevance filter: recall over precision.)
+    return results[:limit]
 
 
 async def fetch_himalayas(
