@@ -112,22 +112,27 @@ def _tokens(term: str) -> list[str]:
     return [t for t in re.split(r"[^0-9a-zA-Zäöüß]+", (term or "").lower()) if len(t) >= 2]
 
 
-def _expanded_tokens(term: str) -> list[str]:
-    out: set[str] = set()
-    for t in _tokens(term):
-        out |= _SYNONYMS.get(t, {t})
-    return list(out)
+def _hit(hay: str, tok: str) -> bool:
+    """Whole-word (synonym-expanded) match of one query token against the haystack."""
+    for e in _SYNONYMS.get(tok, {tok}):
+        if re.search(rf"(?<![0-9a-zäöüß]){re.escape(e)}(?![0-9a-zäöüß])", hay):
+            return True
+    return False
 
 
 def _match_any(job: dict[str, Any], term: str) -> bool:
-    """Keep a job if ANY (synonym-expanded) query token appears as a whole word in
-    title/company/location/description. Word-boundary avoids 'it' matching 'security';
-    ANY-semantics keeps recall; a nonsense term matches nothing → filtered out (BUG2)."""
-    toks = _expanded_tokens(term)
+    """Keep a job only if a MAJORITY of the query's significant tokens match (whole-word,
+    synonym-expanded) in title/company/location/description. BUG2: a nonsense query like
+    'qxzykw-nonsense-term-9931' contains the real word 'term' — ANY-token would leak on it;
+    requiring ceil(n/2) tokens means one incidental word is not enough → nonsense → ~0."""
+    toks = [t for t in _tokens(term) if len(t) >= 3 and not t.isdigit()]
+    if not toks:  # very short/1-2 char queries: fall back to all non-numeric tokens
+        toks = [t for t in _tokens(term) if not t.isdigit()]
     if not toks:
         return True
     hay = " ".join(str(job.get(k) or "") for k in ("title", "company", "location", "description")).lower()
-    return any(re.search(rf"(?<![0-9a-zäöüß]){re.escape(t)}(?![0-9a-zäöüß])", hay) for t in toks)
+    matched = sum(1 for t in toks if _hit(hay, t))
+    return matched >= (len(toks) + 1) // 2
 
 
 def looks_like_job(job: dict[str, Any]) -> bool:
