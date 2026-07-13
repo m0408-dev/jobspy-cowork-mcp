@@ -161,35 +161,37 @@ def dach_ok(location: str | None) -> bool:
     return True
 
 
-def _recent(date_posted: Any, days: int) -> bool:
-    """Freshness gate (BUG1): keep a job unless we can CONFIDENTLY parse its posting date as
-    older than `days`. Undated / unparseable dates are kept (recall-first — never over-drop).
-    Only unambiguously stale postings (e.g. a 2024 ad on a 7-day search) are removed, because an
-    expired listing is a dead link the downstream AI cannot rescue — that is noise, not recall."""
-    if not days or days <= 0 or not date_posted:
-        return True
+def _parse_date(date_posted: Any) -> _dt.date | None:
+    """Best-effort parse of the many date formats our sources emit (ISO, RFC-822 RSS pubDate,
+    unix epoch). Returns None when it cannot parse — callers must treat None as 'unknown'."""
+    if not date_posted:
+        return None
     s = str(date_posted).strip()
     if not s:
-        return True
-    dt: _dt.date | None = None
+        return None
     if s.isdigit() and len(s) >= 10:                       # unix epoch (e.g. arbeitnow created_at)
         try:
-            dt = _dt.datetime.utcfromtimestamp(int(s[:10])).date()
+            return _dt.datetime.utcfromtimestamp(int(s[:10])).date()
         except (ValueError, OverflowError):
-            dt = None
-    if dt is None:
-        try:
-            dt = _dt.date.fromisoformat(s[:10])            # ISO date / datetime prefix
-        except ValueError:
-            try:
-                parsed = parsedate_to_datetime(s)          # RFC-822 (RSS pubDate)
-                dt = parsed.date() if parsed else None
-            except (TypeError, ValueError, IndexError):
-                dt = None
-    if dt is None:
-        return True                                        # unknown format → keep, don't over-drop
-    age = (_dt.date.today() - dt).days
-    return age <= days + 1                                 # +1 day slack for timezones
+            return None
+    try:
+        return _dt.date.fromisoformat(s[:10])              # ISO date / datetime prefix
+    except ValueError:
+        pass
+    try:
+        parsed = parsedate_to_datetime(s)                  # RFC-822 (RSS pubDate)
+        return parsed.date() if parsed else None
+    except (TypeError, ValueError, IndexError):
+        return None
+
+
+def date_ordinal(job: dict[str, Any]) -> int:
+    """Sort key for 'freshest first' (BUG1, recall-first): higher = newer. Undated / unparseable
+    postings sort to the BOTTOM (0) instead of being dropped — we never cull by date, because
+    AA's home-office pool for niche terms is legitimately old and a hard cutoff would zero it.
+    The date stays visible in the payload so the downstream AI can deprioritise stale ads itself."""
+    d = _parse_date(job.get("date_posted"))
+    return d.toordinal() if d else 0
 
 
 def _salary(lo: Any, hi: Any, cur: Any = None, period: str | None = None) -> str | None:
@@ -597,8 +599,6 @@ async def fetch_sources(
                     kwargs["geo"] = "germany"
                 jobs = await _FETCHERS[name](client, term, location, remote_only, limit_per_source, days, **kwargs)
                 jobs = [j for j in jobs if looks_like_job(j)]                        # BUG6
-                if days and days > 0:                                                # BUG1 freshness
-                    jobs = [j for j in jobs if _recent(j.get("date_posted"), days)]
                 if dach_only and name not in ("arbeitsagentur", "arbeitnow"):        # BUG5 (DE-native kept)
                     jobs = [j for j in jobs if dach_ok(j.get("location"))]
                 meta[name] = len(jobs)

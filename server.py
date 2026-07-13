@@ -47,7 +47,7 @@ except ImportError as exc:  # pragma: no cover
 # (Arbeitsagentur, Himalayas, Remotive, RemoteOK, Arbeitnow, Jobicy).
 from sources import (  # noqa: E402
     API_SOURCES, REMOTE_SOURCES, SOURCE_INFO, fetch_sources, _dedup_key,
-    looks_like_job, looks_remote,
+    looks_like_job, looks_remote, date_ordinal,
 )
 
 ApiSource = Literal[
@@ -497,8 +497,9 @@ async def search_all_jobs(
             log.warning("jobspy leg failed: %s", exc)
             meta["indeed+linkedin"] = f"error: {exc}"
 
-    # Surface remote roles first; keep source order otherwise.
-    jobs.sort(key=lambda j: (not j.get("is_remote"),))
+    # Surface remote roles first, then freshest first (BUG1: stale ads sink instead of being
+    # dropped — the date stays visible so the calling AI can deprioritise old postings).
+    jobs.sort(key=lambda j: (not j.get("is_remote"), -date_ordinal(j)))
     return _render_aggregate(jobs, meta, response_format=response_format)
 
 
@@ -521,7 +522,7 @@ async def search_german_jobs(
     jobs, meta = await fetch_sources(
         ["arbeitsagentur"], search_term, location, remote_only, results_wanted, days_old
     )
-    jobs.sort(key=lambda j: (not j.get("is_remote"),))
+    jobs.sort(key=lambda j: (not j.get("is_remote"), -date_ordinal(j)))
     return _render_aggregate(jobs, meta, response_format="detailed")
 
 
@@ -551,7 +552,7 @@ async def search_remote_jobs(
         api_sources, search_term, location=None, remote_only=True,
         limit_per_source=results_per_source, days=0, dach_only=dach_only,
     )
-    jobs.sort(key=lambda j: (not j.get("is_remote"),))
+    jobs.sort(key=lambda j: (not j.get("is_remote"), -date_ordinal(j)))
     return _render_aggregate(jobs, meta, response_format=response_format)
 
 
