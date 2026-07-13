@@ -254,7 +254,9 @@ async def fetch_arbeitsagentur(
             data = await _query(params)
         _add(_aa_records(data, remote_only=False, limit=limit))
 
-    return results[:limit]
+    # Arbeitsagentur's server-side `was` search is fuzzy (matches 'IT' inside sales roles);
+    # apply the same relevance filter as the other sources to drop off-topic hits.
+    return [r for r in results if _match_any(r, term)][:limit]
 
 
 async def fetch_himalayas(
