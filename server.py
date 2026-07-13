@@ -47,6 +47,7 @@ except ImportError as exc:  # pragma: no cover
 # (Arbeitsagentur, Himalayas, Remotive, RemoteOK, Arbeitnow, Jobicy).
 from sources import (  # noqa: E402
     API_SOURCES, REMOTE_SOURCES, SOURCE_INFO, fetch_sources, _dedup_key,
+    looks_like_job, looks_remote,
 )
 
 ApiSource = Literal[
@@ -129,17 +130,17 @@ auth = (
 mcp = FastMCP(
     name="JobSpy Job Search",
     instructions=(
-        "Real job-posting search across 11 free sources. To find as many relevant jobs as possible, "
-        "prefer `search_all_jobs` — it queries in parallel: Germany's official federal job database "
-        "(Arbeitsagentur), remote-job APIs (Himalayas, Remotive, RemoteOK, Arbeitnow, Jobicy, "
-        "WeWorkRemotely, The Muse), HackerNews 'Who is hiring', AND Indeed+LinkedIn — then dedups into "
-        "one normalised list. Call `list_job_sources` to see every source and pick `sources=[...]`. "
-        "Use `search_german_jobs` for the German market, `search_remote_jobs` for remote-only, and "
-        "`search_jobs` for direct JobSpy control. Tips for good results: start with response_format="
-        "'concise' and a broad search_term to cast a wide net, then re-query promising hits with "
-        "response_format='detailed'; broaden by adding sources or raising results_per_source. Every "
-        "result has title, company, location, remote flag, an application url (+ salary/description in "
-        "detailed mode)."
+        "Job-posting search tuned for DACH (Germany/Austria/Switzerland), German-language IT/support "
+        "roles and 100% Homeoffice. Prefer `search_all_jobs` — it queries Arbeitsagentur (official DE "
+        "DB), the remote APIs (Himalayas, Remotive, RemoteOK, Arbeitnow, Jobicy, HackerNews, "
+        "WeWorkRemotely) and optionally Indeed+LinkedIn in parallel, deduped. For German-language "
+        "roles use German search terms ('IT-Support', 'Systemadministrator', 'Helpdesk', 'Application "
+        "Support', '1st/2nd Level Support', 'Fachinformatiker'); synonyms are matched automatically. "
+        "`remote_only=true` on `search_german_jobs`/`search_all_jobs` returns real Home-Office roles; "
+        "`dach_only` (on by default) drops jobs restricted to non-European regions. `search_remote_jobs` "
+        "= remote APIs only; `search_jobs` = direct JobSpy (its is_remote is enforced server-side). "
+        "Call `list_job_sources` to pick `sources=[...]`. Result: {count, returned, fetched_per_source, "
+        "jobs:[...]} — count is the number of jobs returned; fetched_per_source is pre-dedup."
     ),
     auth=auth,
 )
@@ -285,6 +286,17 @@ def search_jobs(
     jobs: list[dict[str, Any]] = []
     for rec in records:
         job = {key: rec.get(key) for key in KEEP_COLUMNS if key in rec}
+        # BUG6: drop obvious non-jobs (blog/webinar/article) that JobSpy sometimes returns.
+        if not looks_like_job(job):
+            continue
+        # BUG4: JobSpy's is_remote filter is unreliable → enforce it ourselves. Keep a job only
+        # if it is flagged remote OR the title/description says home office / remote.
+        if is_remote and not (
+            job.get("is_remote") is True
+            or looks_remote(job.get("title"))
+            or looks_remote(job.get("description"))
+        ):
+            continue
         if not include_description:
             job.pop("description", None)
         elif job.get("description"):
@@ -350,7 +362,14 @@ def _render_aggregate(
         jobs = [{k: v for k, v in j.items() if k not in _CONCISE_DROP} for j in jobs]
 
     def build(items: list[dict[str, Any]], truncated: bool) -> str:
-        payload: dict[str, Any] = {"count": len(items), "sources": meta, "response_format": response_format}
+        # BUG8: `count` == number of jobs actually returned. `fetched_per_source` is the
+        # PRE-dedup per-source count (fetched), clearly separated from the returned total.
+        payload: dict[str, Any] = {
+            "count": len(items),
+            "returned": len(items),
+            "fetched_per_source": meta,
+            "response_format": response_format,
+        }
         if extra:
             payload.update(extra)
         payload["jobs"] = items
@@ -412,19 +431,24 @@ async def search_all_jobs(
         Literal["concise", "detailed"],
         Field(description="concise = title/company/location/url (fits many more jobs — best for a first sweep); detailed = also description/salary/date."),
     ] = "concise",
+    dach_only: Annotated[
+        bool, Field(description="DACH filter (default on): drop remote jobs restricted to non-European regions (US/AU/IN/PH/BR only). Worldwide/Europe/unknown are kept. Set false for a global search."),
+    ] = True,
 ) -> str:
-    """MOST POWERFUL search — the best default for a real job hunt.
+    """MOST POWERFUL search — the best default for a real job hunt (tuned for DACH).
 
-    Queries in parallel: Germany's official federal job database (Arbeitsagentur — the largest
-    German job DB), five remote-job APIs (Himalayas, Remotive, RemoteOK, Arbeitnow, Jobicy) and,
+    Queries in parallel: Germany's official federal job database (Arbeitsagentur), the remote-job
+    APIs (Himalayas, Remotive, RemoteOK, Arbeitnow, Jobicy, HackerNews, WeWorkRemotely) and,
     unless disabled, Indeed + LinkedIn via JobSpy. Results are deduplicated across every source
-    and returned as one normalised list: {count, sources:{per-source counts}, jobs:[...]}.
+    and returned as: {count, returned, fetched_per_source, jobs:[...]}.
     """
     api_sources = list(sources) if sources else list(API_SOURCES)
-    log.info("search_all_jobs term=%r loc=%r remote=%s jobspy=%s", search_term, location, remote_only, include_jobspy)
+    log.info("search_all_jobs term=%r loc=%r remote=%s jobspy=%s dach=%s",
+             search_term, location, remote_only, include_jobspy, dach_only)
 
     jobs, meta = await fetch_sources(
-        api_sources, search_term, location, remote_only, results_per_source, days_old
+        api_sources, search_term, location, remote_only, results_per_source, days_old,
+        dach_only=dach_only,
     )
 
     if include_jobspy:
@@ -483,7 +507,8 @@ async def search_german_jobs(
     jobs, meta = await fetch_sources(
         ["arbeitsagentur"], search_term, location, remote_only, results_wanted, days_old
     )
-    return _render_aggregate(jobs, meta)
+    jobs.sort(key=lambda j: (not j.get("is_remote"),))
+    return _render_aggregate(jobs, meta, response_format="detailed")
 
 
 @mcp.tool
@@ -498,17 +523,21 @@ async def search_remote_jobs(
         Literal["concise", "detailed"],
         Field(description="concise = compact (more jobs fit); detailed = with descriptions/salary."),
     ] = "concise",
+    dach_only: Annotated[
+        bool, Field(description="DACH filter (default on): drop jobs restricted to non-European regions. Set false for a global search."),
+    ] = True,
 ) -> str:
     """Aggregate remote jobs across Himalayas, Remotive, RemoteOK, Arbeitnow, Jobicy,
-    HackerNews 'Who is hiring', WeWorkRemotely and The Muse.
+    HackerNews 'Who is hiring' and WeWorkRemotely (The Muse only if explicitly requested).
 
-    Fast (no scraping), free, deduplicated. Returns {count, sources, jobs:[...]}.
+    Fast (no scraping), free, deduplicated. Returns {count, returned, fetched_per_source, jobs:[...]}.
     """
     api_sources = list(sources) if sources else list(REMOTE_SOURCES)
     jobs, meta = await fetch_sources(
         api_sources, search_term, location=None, remote_only=True,
-        limit_per_source=results_per_source, days=0,
+        limit_per_source=results_per_source, days=0, dach_only=dach_only,
     )
+    jobs.sort(key=lambda j: (not j.get("is_remote"),))
     return _render_aggregate(jobs, meta, response_format=response_format)
 
 
