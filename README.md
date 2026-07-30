@@ -10,6 +10,28 @@ Der Server ist für **öffentlichen Betrieb gehärtet**: Per-IP-Rate-Limit, Conc
 
 ---
 
+## v2 — Raw Pull: der Server holt, die KI filtert
+
+Der Server trifft **keine Relevanz-Entscheidungen** mehr. Er maximiert die Trefferzahl und liefert zu jedem Job die Signale mit, die zum Filtern nötig sind (`relevance`, `remote_confidence`, `remote_signals`, `date_posted`). Nichts wird zurückgehalten, weil es „unpassend aussieht" — das ist Aufgabe der aufrufenden KI. Jede Kappung wird im Payload ausgewiesen (`size_cap_dropped`, `capped`, `total_available`), damit ein Ausschnitt nie wie „der ganze Markt" aussieht.
+
+Was sich gegenüber v1 konkret geändert hat — alle Zahlen am 30.07.2026 gegen die Live-API gemessen:
+
+| Problem in v1 | Messung | Fix in v2 |
+|---|---|---|
+| **Nur eine Seite Arbeitsagentur.** `size≤100`, `page=1`, fertig. | „IT-Support" deutschlandweit hat **8043** Anzeigen. v1 sah davon **max. 100**. | Tiefe Paginierung bis `results_per_source` (bis 1000), plus `total_available` im Ergebnis. |
+| **Deutsche Komposita unsichtbar.** Ein Query findet nur eine Schreibweise. | `Nachtschicht` 97 Treffer, `Nachtdienst` 77 — **Schnittmenge 3**. Die beiden Mengen sind praktisch disjunkt. | `expand_query` (Default an) zerlegt Komposita und hängt Geschwister-Endungen an: `Nachtschicht` → `Nacht`, `Nachtdienst`, `Nachtwache`, `Nachtarbeit`… Alle Varianten werden parallel gefeuert und unioniert. Zusätzlich `search_terms=[...]` für eigene Wortvarianten in **einem** Aufruf. |
+| **`remote_only=true` lieferte fast nichts.** Es setzte die Arbeitsagentur-Checkbox `arbeitszeit=ho`, die Arbeitgeber selbst ankreuzen müssen. | „IT-Support" ohne Filter **8043**, mit `arbeitszeit=ho` **0**. Gleichzeitig erwähnen **17 von 30** Anzeigentexten Homeoffice/Remote. | `remote_only` **filtert nicht mehr** — es ergänzt die Homeoffice-Spalte und sortiert Remote nach vorn. Der Remote-Status kommt jetzt aus dem Anzeigentext. |
+| **`days_old` warf lebende Anzeigen weg.** | Deutsche Anzeigen bleiben Wochen bis Monate offen. | Default **`days_old=0`** (kein Datumsfilter). Das Datum steht am Job, die KI entscheidet über Aktualität. |
+| **`remote_confidence` war geraten.** Die Listen-API liefert `description: null`, also wurde aus dem Titel geraten — „Sandwichartist" landete auf `likely`. | Detail-Endpoint liefert den vollen Text, ~3200 Zeichen im Schnitt, **~107 Anfragen/s**. | Beschreibungen werden nachgeladen (`fetch_details`, Default an) und das Urteil aus dem echten Text gebildet. Ohne Text sagt das Feld jetzt **`unknown`** statt zu raten. `remote_signals` nennt die Belegstellen. |
+| **Firmenname als Treffer.** „It-excelsus GmbH" matchte auf „IT-Support". | — | Feldgewichtung: Titel 1.0, Text 0.5, Firma/Ort 0.15. Ein reiner Firmennamen-Treffer landet auf `relevance` ≈ 0 — wird aber **nicht gelöscht**, nur nach hinten sortiert. |
+| **Dedup verschluckte Städte.** Schlüssel war Titel+Firma. | Eine Kette schreibt dieselbe Stelle in 30 Orten aus — v1 behielt eine. | Stadt gehört jetzt zum Dedup-Schlüssel (~45 % mehr Treffer bei einem Arbeitsagentur-Pull). |
+
+**Wichtig zum deutschen Markt:** von den neun freien APIs decken realistisch nur **Arbeitsagentur** und **Arbeitnow** Deutschland ab; die anderen sieben sind US-lastige Remote-Boards und die Quelle des internationalen Rauschens. Für einen sauberen DE-Lauf: `sources=["arbeitsagentur","arbeitnow"]`.
+
+**Zwei-Schritt-Muster:** erst breit mit `response_format="concise"` (kein Anzeigentext → ~5× mehr Jobs pro Antwort; der Text wird trotzdem serverseitig gelesen, um `remote_confidence` zu bilden), dann die Shortlist mit `response_format="detailed"` nachladen.
+
+---
+
 ## ⚠️ Das Wichtigste zuerst: Cloud-IPs werden geblockt
 
 Cowork verbindet sich **aus Anthropics Cloud** zu deinem Server — lokale MCP-Server funktionieren in Cowork **nicht**. Dein Scraper muss also öffentlich gehostet sein und läuft damit auf einer **Datacenter-IP**.
@@ -121,6 +143,33 @@ user:pass@host:port,user:pass@host:port,localhost
 
 - Bei Render/Railway/Fly trägst du das als **Secret Env-Var** ein (nicht in den Code!).
 - Lokal in `.env` (siehe `.env.example`) — lokal brauchst du meist gar keine.
+
+---
+
+## Die Tools: `search_all_jobs` / `search_german_jobs`
+
+Das Standard-Tool ist `search_all_jobs`; `search_german_jobs` ist derselbe Pull, nur auf die Arbeitsagentur beschränkt (dafür der tiefste).
+
+| Parameter | Typ | Default | Beschreibung |
+|---|---|---|---|
+| `search_term` | str | – | Suchbegriff, **beliebiger Beruf** — kein IT-Tool |
+| `location` | str | `"Germany"` | Stadt/Region; `"Germany"` = bundesweit |
+| `search_terms` | list? | – | weitere Wortvarianten, im **selben** Aufruf unioniert, z. B. `["Nachtdienst","Nachtwache"]` |
+| `results_per_source` (bzw. `results_wanted`) | int | `100` | Treffer **pro Quelle** vor Dedup, bis 1000. Die Arbeitsagentur paginiert dafür durch |
+| `days_old` | int | `0` | `0` = kein Datumsfilter (empfohlen) |
+| `remote_only` | bool | `false` | **Boost, kein Filter**: ergänzt die Homeoffice-Spalte, sortiert Remote nach vorn, löscht nichts |
+| `expand_query` | bool | `true` | Komposita zerlegen + Geschwister-Endungen + Synonyme |
+| `fetch_details` | bool | `true` | Anzeigentexte der Arbeitsagentur nachladen (Basis für `remote_confidence`) |
+| `sources` | list? | alle 9 | für DE sinnvoll: `["arbeitsagentur","arbeitnow"]` |
+| `response_format` | str | `"concise"` | `concise` = ohne Anzeigentext (viel mehr Jobs passen rein); `detailed` = mit Volltext |
+| `include_jobspy` | bool | `false` | zusätzlich Indeed + LinkedIn scrapen (langsam, IP-limitiert) |
+| `dach_only` | bool | `false` | optionaler Vorfilter gegen klar nicht-europäische Stellen |
+
+Rückgabe: `{ count, found_before_size_cap, total_available, queries_used, duplicates_removed, per_source, jobs: [...] }`.
+
+Pro Job: `title, company, location, date_posted` (ISO-normalisiert), `job_url`, `source`, `is_remote`, **`relevance`** (0–1, reines Sortiersignal), **`remote_confidence`** (`strict` | `hybrid` | `mixed` | `likely` | `no_signal` | `unknown`) und **`remote_signals`** (die gefundenen Belegstellen).
+
+> `total_available` ist der größte Einzel-Query-Pool der gefeuerten Suchen. Ist er viel größer als `count`, siehst du einen Ausschnitt — dann `results_per_source` erhöhen oder den Ort eingrenzen.
 
 ---
 

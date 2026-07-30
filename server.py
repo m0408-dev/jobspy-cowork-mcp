@@ -47,7 +47,7 @@ except ImportError as exc:  # pragma: no cover
 # (Arbeitsagentur, Himalayas, Remotive, RemoteOK, Arbeitnow, Jobicy).
 from sources import (  # noqa: E402
     API_SOURCES, REMOTE_SOURCES, SOURCE_INFO, fetch_sources, _dedup_key,
-    looks_like_job, looks_remote, date_ordinal, remote_confidence,
+    looks_like_job, looks_remote, date_ordinal, remote_confidence, relevance,
 )
 
 ApiSource = Literal[
@@ -130,24 +130,37 @@ auth = (
 mcp = FastMCP(
     name="JobSpy Job Search",
     instructions=(
-        "Job-posting search tuned for DACH (Germany/Austria/Switzerland), German-language IT/support "
-        "roles and 100% Homeoffice. RECALL-FIRST: these tools cast a wide net and return generously — "
-        "YOU are the classifier. Expect some off-topic hits and rank/drop them yourself; do NOT assume "
-        "'no results' unless a tool truly returns count 0. Prefer `search_all_jobs` — it queries "
-        "Arbeitsagentur (official DE DB), the remote APIs (Himalayas, Remotive, RemoteOK, Arbeitnow, "
-        "Jobicy, HackerNews, WeWorkRemotely, The Muse) and optionally Indeed+LinkedIn in parallel, "
-        "deduped. Use German search terms for German roles ('IT-Support', 'Systemadministrator', "
-        "'Helpdesk', 'Application Support', '1st/2nd Level Support', 'Fachinformatiker'); synonyms are "
-        "matched automatically. `remote_only=true` returns Home-Office roles. Optional `dach_only` "
-        "(default OFF) pre-drops jobs restricted to non-European regions if you want less noise. "
-        "IMPORTANT for a strict 100%-remote hunt: `is_remote` only means the SOURCE calls it remote — "
-        "many are remote-first with mandatory office days. Use the per-job `remote_confidence` field "
-        "instead: 'strict' = explicitly 100%/fully remote; 'likely' = remote-tagged, no onsite wording "
-        "(confirm in the posting); 'hybrid' = has an onsite/Präsenz/relocation obligation → drop for a "
-        "100%-remote filter; 'mixed' = says both, read it. Postings can also be expired — check "
-        "date_posted (results are sorted newest-first). `search_remote_jobs` = remote APIs only; "
-        "`search_jobs` = direct JobSpy. Call `list_job_sources` to pick `sources=[...]`. "
-        "Result: {count, returned, fetched_per_source, jobs:[...]}."
+        "RAW-PULL job search, strongest on the German market. The server's job is RECALL; YOUR job "
+        "is filtering. It deliberately returns off-topic hits rather than risk hiding a real one — "
+        "rank and drop them yourself, and never conclude 'there are no jobs' unless count is 0.\n"
+        "\n"
+        "Use `search_all_jobs` by default (Arbeitsagentur + 8 remote APIs, optionally Indeed/LinkedIn, "
+        "deduped, in parallel). `search_german_jobs` = Arbeitsagentur only, the deepest pull for DE. "
+        "`search_remote_jobs` = the remote APIs. `search_jobs` = direct JobSpy scrape.\n"
+        "\n"
+        "HOW TO GET EVERYTHING (this matters — the defaults are already tuned for it):\n"
+        "* Leave `days_old=0`. German ads stay open for months; a 3-5 day cutoff throws away live "
+        "postings. Every job carries date_posted, so judge freshness yourself.\n"
+        "* German compound nouns are near-disjoint on the Arbeitsagentur API — 'Nachtschicht' and "
+        "'Nachtdienst' barely share results. `expand_query=true` (default) automatically also searches "
+        "the stem and its siblings (Nachtschicht -> Nacht, Nachtdienst, Nachtwache, Nachtarbeit). Pass "
+        "further wordings via `search_terms=[...]`; they are unioned in ONE call.\n"
+        "* Raise `results_per_source` (up to 1000) for a deep sweep. `total_available` in the response "
+        "tells you how many exist in total, so you always know if you are seeing a slice.\n"
+        "\n"
+        "REMOTE / HOMEOFFICE — read this before filtering on it: `remote_only=true` does NOT restrict "
+        "the result set, it only ADDS Arbeitsagentur's Homeoffice-flagged jobs and sorts remote-looking "
+        "ones first. That flag is an employer-ticked checkbox almost nobody ticks (measured: 'IT-Support' "
+        "nationwide = 8043 ads, the same search filtered on the flag = 0), so filtering on it returns "
+        "nothing. Judge remoteness from `remote_confidence`, computed from the ACTUAL ad text: 'strict' "
+        "= explicitly 100%/fully remote; 'hybrid' = onsite/Präsenz/relocation obligation; 'mixed' = says "
+        "both; 'likely' = mentions home office without saying how much; 'no_signal' = text says nothing "
+        "about it; 'unknown' = no description available, so no claim is made. `remote_signals` lists the "
+        "exact phrases behind the verdict. Never trust `is_remote` alone — it is just what the source said.\n"
+        "\n"
+        "Each job also has `relevance` (0-1): a SORT hint only, high = query words hit the title, low = "
+        "they only hit e.g. the company name. Nothing is dropped for scoring low.\n"
+        "Result: {count, total_available, queries_used, per_source, jobs:[...]}."
     ),
     auth=auth,
 )
@@ -291,7 +304,7 @@ def search_jobs(
     records = _dataframe_to_records(df)
 
     jobs: list[dict[str, Any]] = []
-    seen_keys: set[tuple[str, str]] = set()
+    seen_keys: set[tuple[str, str, str]] = set()
     for rec in records:
         job = {key: rec.get(key) for key in KEEP_COLUMNS if key in rec}
         # BUG6: drop obvious non-jobs (blog/webinar/article) that JobSpy sometimes returns.
@@ -368,43 +381,70 @@ def _jobspy_to_common(rec: dict[str, Any]) -> dict[str, Any]:
     return job
 
 
-# In "concise" mode we drop the heavy/optional fields so many more jobs fit under the
-# size cap — the agent can re-query a shortlist with response_format="detailed".
-_CONCISE_DROP = ("description", "salary", "date_posted")
+# In "concise" mode we drop the one genuinely heavy field (ad texts run 3-4k chars each, so
+# keeping them costs ~85 % of the jobs that would otherwise fit). Everything needed to filter
+# a first sweep stays: date_posted for freshness, relevance for fit, and remote_confidence
+# plus remote_signals — the phrases the remote verdict was actually based on. The ad text is
+# still READ server-side to produce that verdict; re-query a shortlist with
+# response_format="detailed" to see it in full.
+_CONCISE_DROP = ("description",)
 
 
 def _render_aggregate(
     jobs: list[dict[str, Any]], meta: dict[str, Any],
     response_format: str = "concise", extra: dict[str, Any] | None = None,
 ) -> str:
-    """JSON-encode aggregated results, shrinking the list if it blows the size cap."""
+    """JSON-encode aggregated results, shrinking the list if it blows the size cap.
+
+    Any truncation is reported explicitly (`size_cap_dropped`): a silent cap would read as
+    "that is the whole market" when it is not.
+    """
     if response_format == "concise":
         jobs = [{k: v for k, v in j.items() if k not in _CONCISE_DROP} for j in jobs]
 
-    def build(items: list[dict[str, Any]], truncated: bool) -> str:
-        # BUG8: `count` == number of jobs actually returned. `fetched_per_source` is the
-        # PRE-dedup per-source count (fetched), clearly separated from the returned total.
+    found = len(jobs)
+    per_source = meta.get("per_source", meta)
+    total_available = meta.get("total_available") or 0
+
+    def build(items: list[dict[str, Any]]) -> str:
         payload: dict[str, Any] = {
             "count": len(items),
-            "returned": len(items),
-            "fetched_per_source": meta,
+            "found_before_size_cap": found,
+            # How many postings the sources say exist for these queries in total. `count` is
+            # what fits in one response — raise results_per_source / narrow the location to
+            # walk deeper into this pool.
+            "total_available": total_available,
+            "queries_used": meta.get("queries_used", []),
+            "duplicates_removed": meta.get("duplicates_removed", 0),
+            "per_source": per_source,
             "response_format": response_format,
         }
         if extra:
             payload.update(extra)
-        payload["jobs"] = items
-        if truncated:
+        if len(items) < found:
+            payload["size_cap_dropped"] = found - len(items)
             payload["note"] = (
-                "Result truncated to fit the size limit. Use response_format='concise', "
-                "fewer sources, or a lower results_per_source to see everything."
+                f"{found - len(items)} of {found} jobs did not fit the response size limit and were "
+                "cut from the END of the list, i.e. the lowest-relevance ones. Use "
+                "response_format='concise', fewer sources, or a lower results_per_source to see more."
             )
+        payload["jobs"] = items
         return json.dumps(payload, ensure_ascii=False, indent=2, default=str)
 
-    text = build(jobs, truncated=False)
+    text = build(jobs)
     while len(text) > MAX_RESULT_CHARS and len(jobs) > 1:
         jobs = jobs[: max(1, len(jobs) * 3 // 4)]
-        text = build(jobs, truncated=True)
+        text = build(jobs)
     return text
+
+
+def _sort_jobs(jobs: list[dict[str, Any]], remote_first: bool) -> None:
+    """Order the merged list: best match first, then (optionally) remote, then freshest.
+    Relevance leads because the size cap cuts from the tail."""
+    if remote_first:
+        jobs.sort(key=lambda j: (-(j.get("relevance") or 0), not j.get("is_remote"), -date_ordinal(j)))
+    else:
+        jobs.sort(key=lambda j: (-(j.get("relevance") or 0), -date_ordinal(j)))
 
 
 @mcp.tool
@@ -422,56 +462,80 @@ def list_job_sources() -> str:
         "catalog": SOURCE_INFO,
         "recommended": "search_all_jobs for the widest net; search_german_jobs for the DE market; "
                        "search_remote_jobs for remote-only.",
+        "german_market_note": "Only arbeitsagentur and arbeitnow really cover Germany. The other "
+                              "seven APIs are US-tech-heavy remote boards — they are the source of "
+                              "most international noise in a DE search. Restrict with "
+                              "sources=['arbeitsagentur','arbeitnow'] for a clean German sweep.",
     }, ensure_ascii=False, indent=2)
 
 
 @mcp.tool
 async def search_all_jobs(
     search_term: Annotated[
-        str, Field(description="Keywords, e.g. 'python backend developer' or 'devops engineer'.")
+        str, Field(description="Keywords, e.g. 'Nachtschicht', 'IT-Support', 'Lagerhelfer'. Any occupation — this is not an IT-only tool.")
     ],
     location: Annotated[
-        str, Field(description="City/region/country, e.g. 'Berlin, Germany' or 'Germany'. Used by Arbeitsagentur + Indeed/LinkedIn.")
+        str, Field(description="City/region/country, e.g. 'München' or 'Germany'. Used by Arbeitsagentur + Indeed/LinkedIn. Nationwide = 'Germany'.")
     ] = "Germany",
-    remote_only: Annotated[bool, Field(description="Only remote positions.")] = False,
+    search_terms: Annotated[
+        list[str] | None,
+        Field(description="Extra wordings searched in the SAME call and unioned/deduped, e.g. ['Nachtdienst','Nachtwache','nachts']. Use this whenever a role has several German names — one query never sees them all."),
+    ] = None,
+    remote_only: Annotated[
+        bool,
+        Field(description="BOOST, not a filter: adds Arbeitsagentur's Homeoffice-flagged leg and sorts remote-looking jobs first. Never removes non-remote results (that employer checkbox is almost never ticked). Judge remoteness via remote_confidence."),
+    ] = False,
     results_per_source: Annotated[
-        int, Field(ge=1, le=50, description="How many results to pull from each source before dedup. Higher = more recall.")
-    ] = 25,
+        int, Field(ge=1, le=1000, description="How many results to pull PER SOURCE before dedup. Arbeitsagentur paginates to reach it. 25 = quick look, 200-500 = deep sweep.")
+    ] = 100,
     days_old: Annotated[
-        int, Field(ge=0, le=100, description="Only jobs newer than N days. 0 = no filter.")
-    ] = 30,
+        int, Field(ge=0, le=100, description="Only jobs newer than N days. 0 = NO date filter (default, recommended — German ads stay open for months and a short cutoff silently discards live postings).")
+    ] = 0,
     include_jobspy: Annotated[
         bool, Field(description="Also scrape Indeed + LinkedIn (richer but slower ~30-60s, and shares one IP so it's rate-capped). Default off; enable for a deeper sweep.")
     ] = False,
     sources: Annotated[
         list[ApiSource] | None,
-        Field(description="Restrict which free APIs to hit. Default = all nine. See list_job_sources."),
+        Field(description="Restrict which free APIs to hit. Default = all nine. Note only arbeitsagentur + arbeitnow really cover the DE market; the rest are US-heavy remote boards. See list_job_sources."),
     ] = None,
     response_format: Annotated[
         Literal["concise", "detailed"],
-        Field(description="concise = title/company/location/url (fits many more jobs — best for a first sweep); detailed = also description/salary/date."),
+        Field(description="concise = title/company/location/date/url/relevance (many more jobs fit — best for a first sweep); detailed = also the full ad text and the remote_signals evidence."),
     ] = "concise",
     dach_only: Annotated[
         bool, Field(description="Optional DACH pre-filter (default OFF — return broadly, you classify). Set true to drop jobs explicitly restricted to non-European regions (US/AU/IN/PH/BR only)."),
     ] = False,
+    expand_query: Annotated[
+        bool, Field(description="Auto-derive query variants: split multi-word terms, split German compounds and re-attach sibling tails (Nachtschicht -> Nacht/Nachtdienst/Nachtwache/Nachtarbeit), apply synonyms. Leave ON unless you want one literal query."),
+    ] = True,
+    fetch_details: Annotated[
+        bool, Field(description="Load each Arbeitsagentur ad's full text (its list API returns description:null). Costs a few seconds, and it is what makes remote_confidence real instead of a guess. Turn off only for a fast headline scan."),
+    ] = True,
 ) -> str:
-    """MOST POWERFUL search — the best default for a real job hunt (tuned for DACH).
+    """MOST POWERFUL search — the default for a real job hunt. Works for ANY occupation.
 
-    Recall-first by design: it casts a wide net and returns generously — YOU (the calling AI)
-    classify / rank / drop the irrelevant ones. Better too many results than too few.
+    RAW PULL: it maximises recall and does not judge relevance. Off-topic hits are expected
+    and are YOUR job to drop — nothing is withheld because the server thought it was a poor
+    match. Every job carries `relevance` (sort hint), `remote_confidence` + `remote_signals`
+    (from the real ad text) and `date_posted`, which is everything you need to filter.
 
-    Queries in parallel: Germany's official federal job database (Arbeitsagentur), the remote-job
-    APIs (Himalayas, Remotive, RemoteOK, Arbeitnow, Jobicy, HackerNews, WeWorkRemotely) and,
-    unless disabled, Indeed + LinkedIn via JobSpy. Results are deduplicated across every source
-    and returned as: {count, returned, fetched_per_source, jobs:[...]}.
+    Queries in parallel: Germany's official federal job database (Arbeitsagentur, walked with
+    deep pagination and multiple query variants), the remote-job APIs (Himalayas, Remotive,
+    RemoteOK, Arbeitnow, Jobicy, HackerNews, WeWorkRemotely, The Muse) and, if enabled,
+    Indeed + LinkedIn via JobSpy. Deduplicated across sources.
+
+    Returns {count, found_before_size_cap, total_available, queries_used, per_source, jobs:[...]}.
+    `total_available` is how many postings exist in total — if it dwarfs `count`, raise
+    results_per_source or narrow the location to walk deeper.
     """
     api_sources = list(sources) if sources else list(API_SOURCES)
-    log.info("search_all_jobs term=%r loc=%r remote=%s jobspy=%s dach=%s",
-             search_term, location, remote_only, include_jobspy, dach_only)
+    log.info("search_all_jobs term=%r extra=%s loc=%r remote_boost=%s jobspy=%s per_source=%d days=%d",
+             search_term, search_terms, location, remote_only, include_jobspy, results_per_source, days_old)
 
     jobs, meta = await fetch_sources(
         api_sources, search_term, location, remote_only, results_per_source, days_old,
-        dach_only=dach_only,
+        dach_only=dach_only, extra_terms=search_terms, expand_query=expand_query,
+        fetch_details=fetch_details,
     )
 
     if include_jobspy:
@@ -491,6 +555,7 @@ async def search_all_jobs(
             if df is not None and len(df):
                 seen = {_dedup_key(j) for j in jobs}
                 added = 0
+                terms = meta.get("queries_used") or [search_term]
                 for rec in _dataframe_to_records(df):
                     job = _jobspy_to_common(rec)
                     if not job["title"]:
@@ -499,46 +564,68 @@ async def search_all_jobs(
                     if key in seen:
                         continue
                     seen.add(key)
+                    job["relevance"] = relevance(job, terms)
                     jobs.append(job)
                     added += 1
-                meta["indeed+linkedin"] = added
+                meta["per_source"]["indeed+linkedin"] = {"scanned": len(df), "kept": added}
         except Exception as exc:  # noqa: BLE001
             log.warning("jobspy leg failed: %s", exc)
-            meta["indeed+linkedin"] = f"error: {exc}"
+            meta["per_source"]["indeed+linkedin"] = {"scanned": 0, "kept": 0, "error": str(exc)[:200]}
 
-    # Surface remote roles first, then freshest first (BUG1: stale ads sink instead of being
-    # dropped — the date stays visible so the calling AI can deprioritise old postings).
-    jobs.sort(key=lambda j: (not j.get("is_remote"), -date_ordinal(j)))
+    _sort_jobs(jobs, remote_first=remote_only)
     return _render_aggregate(jobs, meta, response_format=response_format)
 
 
 @mcp.tool
 async def search_german_jobs(
-    search_term: Annotated[str, Field(description="Keywords, e.g. 'Softwareentwickler' or 'data engineer'.")],
+    search_term: Annotated[str, Field(description="Keywords, e.g. 'Nachtschicht', 'Pflegehelfer', 'Softwareentwickler'. Any occupation.")],
     location: Annotated[
         str, Field(description="City/region, e.g. 'Berlin' or 'München'. Leave as 'Germany' for nationwide.")
     ] = "Germany",
-    remote_only: Annotated[bool, Field(description="Only Homeoffice/remote roles (Arbeitsagentur 'ho' filter).")] = False,
-    results_wanted: Annotated[int, Field(ge=1, le=100, description="Number of results.")] = 25,
-    days_old: Annotated[int, Field(ge=0, le=100, description="Only jobs newer than N days. 0 = no filter.")] = 30,
+    search_terms: Annotated[
+        list[str] | None,
+        Field(description="Extra wordings searched in the SAME call and unioned, e.g. ['Nachtdienst','Nachtwache']. Highly recommended for German compound nouns."),
+    ] = None,
+    remote_only: Annotated[
+        bool,
+        Field(description="BOOST only: adds the Homeoffice-flagged leg and sorts remote first. Does NOT drop on-site jobs — that flag is set so rarely that filtering on it returns ~0."),
+    ] = False,
+    results_wanted: Annotated[int, Field(ge=1, le=1000, description="How many postings to pull. Paginated — 500+ is fine, it just takes a few more seconds.")] = 100,
+    days_old: Annotated[int, Field(ge=0, le=100, description="Only jobs newer than N days. 0 = no filter (default, recommended).")] = 0,
+    expand_query: Annotated[bool, Field(description="Auto-derive compound/synonym variants and union them (Nachtschicht -> Nacht/Nachtdienst/Nachtwache).")] = True,
+    fetch_details: Annotated[bool, Field(description="Load each ad's full text. The list API returns description:null, so this is what gives you real content and a real remote verdict.")] = True,
+    response_format: Annotated[
+        Literal["concise", "detailed"],
+        Field(description="concise (default) = no ad text, so ~5x more jobs fit in one response — the text is still read server-side to produce remote_confidence/remote_signals. detailed = full ad text, best for a shortlist re-query."),
+    ] = "concise",
 ) -> str:
-    """Search the official German federal job database (Bundesagentur für Arbeit / Arbeitsagentur).
+    """Deepest pull of the official German federal job database (Bundesagentur für Arbeit).
 
-    This is the largest German job database and works without proxies. Returns
-    {count, jobs:[...]} — follow each job_url for the full posting (the list API has no
-    description field). Great for the German market, incl. a native remote filter.
+    The largest German job database by far and the only source here that really covers the
+    non-IT German market. Works without proxies.
+
+    Pulls hard: pages through the result set (not just the first 100), fires every query
+    variant and unions them, and — unlike the raw API, which returns description:null for
+    every hit — loads each posting's full text so you can actually read and filter it.
+
+    Returns {count, total_available, queries_used, per_source, jobs:[...]}. If total_available
+    is much larger than count, raise results_wanted or narrow the location.
     """
     jobs, meta = await fetch_sources(
-        ["arbeitsagentur"], search_term, location, remote_only, results_wanted, days_old
+        ["arbeitsagentur"], search_term, location, remote_only, results_wanted, days_old,
+        extra_terms=search_terms, expand_query=expand_query, fetch_details=fetch_details,
     )
-    jobs.sort(key=lambda j: (not j.get("is_remote"), -date_ordinal(j)))
-    return _render_aggregate(jobs, meta, response_format="detailed")
+    _sort_jobs(jobs, remote_first=remote_only)
+    return _render_aggregate(jobs, meta, response_format=response_format)
 
 
 @mcp.tool
 async def search_remote_jobs(
     search_term: Annotated[str, Field(description="Keywords, e.g. 'react developer' or 'sre'.")],
-    results_per_source: Annotated[int, Field(ge=1, le=50, description="Results per API before dedup. Higher = more recall.")] = 25,
+    results_per_source: Annotated[int, Field(ge=1, le=500, description="Results per API before dedup. Higher = more recall.")] = 100,
+    search_terms: Annotated[
+        list[str] | None, Field(description="Extra wordings searched in the same call and unioned."),
+    ] = None,
     sources: Annotated[
         list[Literal["himalayas", "remotive", "remoteok", "arbeitnow", "jobicy", "hackernews", "weworkremotely", "themuse"]] | None,
         Field(description="Which remote APIs to hit. Default = all eight remote sources."),
@@ -552,16 +639,21 @@ async def search_remote_jobs(
     ] = False,
 ) -> str:
     """Aggregate remote jobs across Himalayas, Remotive, RemoteOK, Arbeitnow, Jobicy,
-    HackerNews 'Who is hiring' and WeWorkRemotely (The Muse only if explicitly requested).
+    HackerNews 'Who is hiring', WeWorkRemotely and The Muse.
 
-    Fast (no scraping), free, deduplicated. Returns {count, returned, fetched_per_source, jobs:[...]}.
+    Fast (no scraping), free, deduplicated. These boards are US-tech-heavy — for the German
+    market use search_german_jobs or search_all_jobs instead. Whole feeds are pulled and
+    ranked by `relevance`; nothing is dropped for being off-topic.
+
+    Returns {count, found_before_size_cap, queries_used, per_source, jobs:[...]}.
     """
     api_sources = list(sources) if sources else list(REMOTE_SOURCES)
     jobs, meta = await fetch_sources(
         api_sources, search_term, location=None, remote_only=True,
         limit_per_source=results_per_source, days=0, dach_only=dach_only,
+        extra_terms=search_terms,
     )
-    jobs.sort(key=lambda j: (not j.get("is_remote"), -date_ordinal(j)))
+    _sort_jobs(jobs, remote_first=True)
     return _render_aggregate(jobs, meta, response_format=response_format)
 
 
