@@ -80,6 +80,13 @@ Result pagination (`next_offset`) and upstream pagination (`source_offset`) are 
 
 ## Honest coverage limits
 
+Expanded source research is maintained in [SOURCE_CATALOG.md](SOURCE_CATALOG.md)
+and machine-readable [source_catalog.json](source_catalog.json). This catalog is
+not yet wired into runtime scheduling: it distinguishes existing adapters,
+readable homepages, unresolved access/identity checks and aliases. The required
+future full-run policy is to attempt every source in the explicitly selected
+market segments, with a recorded status for each, rather than silently select a few.
+
 Nine public APIs, eight JobSpy adapters, three employer ATS types. XING, StepStone, Monster,
 blocked listings and application flows still require an independent browser. Discovery is a search-engine
 sample and returns **unverified links**, not evidence that a board or application has been checked.
