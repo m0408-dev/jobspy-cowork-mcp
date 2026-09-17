@@ -79,7 +79,9 @@ class HandoffTests(unittest.IsolatedAsyncioTestCase):
         with patch("server.fetch_sources",AsyncMock(return_value=([],{"per_source":{},"queries_used":["support"]}))), patch("server._jobspy_batch",AsyncMock(return_value=([],{}))):
             d=await self.call("search_all_jobs",search_term="support")
         tasks=await self.call("get_browser_tasks",result_id=d["result_id"],page_size=10)
-        self.assertEqual({t["source"] for t in tasks["tasks"]},{"linkedin","xing","indeed","stepstone","glassdoor","monster"})
+        all_tasks=server.STORE.load(d["result_id"])["meta"]["_browser_tasks"]
+        self.assertTrue({"linkedin","xing","indeed","stepstone","glassdoor","monster"}.issubset({t["source"] for t in all_tasks}))
+        self.assertGreater(len(all_tasks),50)
 
     def test_international_not_silently_germany(self):
         tasks=make_tasks({"market":"international","browser_sweep":True,"queries_used":["German support"]})

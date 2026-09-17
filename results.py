@@ -88,12 +88,16 @@ class ResultStore:
             raise ValueError("Invalid page offset/size")
         data = self.load(result_id)
         jobs = data["jobs"]
+        if data["meta"].get("catalog_scope"):
+            from catalog import coverage
+            data["meta"]["catalog_coverage"] = {k:v for k,v in coverage(data["meta"]).items() if k != "entries"}
         payload = {"result_id": result_id, "total_fetched": len(jobs), "offset": offset,
                    "expires_in_seconds": data["expires_in_seconds"], "jobs": []}
         if offset == 0:
             payload["coverage"] = {k:v for k,v in data["meta"].items() if not k.startswith("_")}
             if len(encode(payload["coverage"])) > max_chars // 3:
                 payload["coverage"] = {"metadata_truncated":True,
+                    "catalog_coverage":data["meta"].get("catalog_coverage"),
                     "browser_handoff":data["meta"].get("browser_handoff"),"exhaustive":False}
         for job in jobs[offset:offset + page_size]:
             item = {k: v for k, v in job.items() if v is not None and not k.startswith("_") and k != "description"}

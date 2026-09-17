@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "researched_on": "2026-09-17",
   "counts": {
     "total": 144,
@@ -13,7 +13,7 @@
     "every_run": "Every source in the expressly selected market segments must get a recorded attempt; no silent shortlist.",
     "international": "Separate opt-in segment. An explicitly worldwide run includes every segment.",
     "failure": "Use host browser or public employer source; unresolved access never equals zero jobs.",
-    "scope": "Research catalog only. Adding a row does not implement a scraper or execute a browser check.",
+    "scope": "Runtime registry: all selected sources produce persistent query-specific host-browser tasks. Existing adapters fetch automatically; queued tasks are not executed attempts.",
     "profession": "No hardcoded occupation, CV, salary or language filter.",
     "completion": "A run cannot claim coverage while unattempted sources remain."
   },
@@ -26,8 +26,11 @@
       "integration": "existing_adapter",
       "research_status": "existing_code_inventory",
       "listing_and_application_flow_verified": false,
-      "run_action": "query_adapter_then_browser_check",
-      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "arbeitnow",
@@ -37,8 +40,11 @@
       "integration": "existing_adapter",
       "research_status": "existing_code_inventory",
       "listing_and_application_flow_verified": false,
-      "run_action": "query_adapter_then_browser_check",
-      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "indeed",
@@ -48,8 +54,12 @@
       "integration": "existing_adapter",
       "research_status": "existing_code_inventory",
       "listing_and_application_flow_verified": false,
-      "run_action": "query_adapter_then_browser_check",
-      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf.",
+      "markets": [
+        "germany",
+        "international"
+      ]
     },
     {
       "id": "linkedin",
@@ -59,8 +69,12 @@
       "integration": "existing_adapter",
       "research_status": "existing_code_inventory",
       "listing_and_application_flow_verified": false,
-      "run_action": "query_adapter_then_browser_check",
-      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf.",
+      "markets": [
+        "germany",
+        "international"
+      ]
     },
     {
       "id": "glassdoor",
@@ -70,8 +84,12 @@
       "integration": "existing_adapter",
       "research_status": "existing_code_inventory",
       "listing_and_application_flow_verified": false,
-      "run_action": "query_adapter_then_browser_check",
-      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf.",
+      "markets": [
+        "germany",
+        "international"
+      ]
     },
     {
       "id": "google",
@@ -81,8 +99,12 @@
       "integration": "existing_adapter",
       "research_status": "existing_code_inventory",
       "listing_and_application_flow_verified": false,
-      "run_action": "query_adapter_then_browser_check",
-      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf.",
+      "markets": [
+        "germany",
+        "international"
+      ]
     },
     {
       "id": "himalayas",
@@ -92,8 +114,11 @@
       "integration": "existing_adapter",
       "research_status": "existing_code_inventory",
       "listing_and_application_flow_verified": false,
-      "run_action": "query_adapter_then_browser_check",
-      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "remotive",
@@ -103,8 +128,11 @@
       "integration": "existing_adapter",
       "research_status": "existing_code_inventory",
       "listing_and_application_flow_verified": false,
-      "run_action": "query_adapter_then_browser_check",
-      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "remoteok",
@@ -114,8 +142,11 @@
       "integration": "existing_adapter",
       "research_status": "existing_code_inventory",
       "listing_and_application_flow_verified": false,
-      "run_action": "query_adapter_then_browser_check",
-      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "jobicy",
@@ -125,8 +156,11 @@
       "integration": "existing_adapter",
       "research_status": "existing_code_inventory",
       "listing_and_application_flow_verified": false,
-      "run_action": "query_adapter_then_browser_check",
-      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "hackernews",
@@ -136,8 +170,11 @@
       "integration": "existing_adapter",
       "research_status": "existing_code_inventory",
       "listing_and_application_flow_verified": false,
-      "run_action": "query_adapter_then_browser_check",
-      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "weworkremotely",
@@ -147,8 +184,11 @@
       "integration": "existing_adapter",
       "research_status": "existing_code_inventory",
       "listing_and_application_flow_verified": false,
-      "run_action": "query_adapter_then_browser_check",
-      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "themuse",
@@ -158,8 +198,11 @@
       "integration": "existing_adapter",
       "research_status": "existing_code_inventory",
       "listing_and_application_flow_verified": false,
-      "run_action": "query_adapter_then_browser_check",
-      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "zip_recruiter",
@@ -169,8 +212,11 @@
       "integration": "existing_adapter",
       "research_status": "existing_code_inventory",
       "listing_and_application_flow_verified": false,
-      "run_action": "query_adapter_then_browser_check",
-      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "bayt",
@@ -180,8 +226,11 @@
       "integration": "existing_adapter",
       "research_status": "existing_code_inventory",
       "listing_and_application_flow_verified": false,
-      "run_action": "query_adapter_then_browser_check",
-      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "naukri",
@@ -191,8 +240,11 @@
       "integration": "existing_adapter",
       "research_status": "existing_code_inventory",
       "listing_and_application_flow_verified": false,
-      "run_action": "query_adapter_then_browser_check",
-      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "bdjobs",
@@ -202,8 +254,11 @@
       "integration": "existing_adapter",
       "research_status": "existing_code_inventory",
       "listing_and_application_flow_verified": false,
-      "run_action": "query_adapter_then_browser_check",
-      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "xing",
@@ -213,8 +268,11 @@
       "integration": "existing_browser_handoff",
       "research_status": "existing_code_inventory",
       "listing_and_application_flow_verified": false,
-      "run_action": "query_adapter_then_browser_check",
-      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "stepstone",
@@ -224,8 +282,11 @@
       "integration": "existing_browser_handoff",
       "research_status": "existing_code_inventory",
       "listing_and_application_flow_verified": false,
-      "run_action": "query_adapter_then_browser_check",
-      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "monster",
@@ -235,8 +296,11 @@
       "integration": "existing_browser_handoff",
       "research_status": "existing_code_inventory",
       "listing_and_application_flow_verified": false,
-      "run_action": "query_adapter_then_browser_check",
-      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Code-Bestand, keine erneute vollständige Börsenprüfung in diesem Recherchelauf.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_21",
@@ -249,8 +313,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Jobs & Stellenangebote - Jobware, da hab' ich den Job her! (https://www.jobware.de/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_22",
@@ -263,8 +330,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "stellenanzeigen.de: Jobbörse- Stellenangebote (https://stellenanzeigen.de/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_23",
@@ -277,8 +347,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Yourfirm: Stellenangebote & Jobs im Mittelstand TESTSIEGER (https://yourfirm.de/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_24",
@@ -291,8 +364,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "meinestadt.de - Das Portal für alle Städte Deutschlands (https://meinestadt.de/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_25",
@@ -305,8 +381,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_26",
@@ -319,8 +398,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "kalaydo.de: Jobbörse- Stellenangebote (https://kalaydo.de/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_27",
@@ -333,8 +415,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Die Jobbörse für Jobs und Stellenangebote – stellenonline.de (https://stellenonline.de/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_28",
@@ -347,8 +432,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Jobs in Deutschland | Top-Stellenangebote Warten auf Dich (https://de.jobrapido.com/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_29",
@@ -361,8 +449,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Jobs in Deutschland — 402.000+ aktuelle Stellenangebote — Jooble (https://de.jooble.org/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_30",
@@ -375,8 +466,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "jobvector | Jobbörse - einfach passende Jobs finden (https://www.jobvector.de/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_31",
@@ -389,8 +483,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "get in IT | Finde Deinen Einstieg in die IT-Branche (https://www.get-in-it.de/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_32",
@@ -403,8 +500,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "IT-Jobbörse Deutschland - jobs.heise.de (https://jobs.heise.de/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_33",
@@ -417,8 +517,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "IT Jobs & Stellenangebote - IT-Jobs.de (https://it-jobs.de/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_34",
@@ -431,8 +534,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_35",
@@ -445,8 +551,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Sitzung abgelaufen (https://interamt.de/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_36",
@@ -459,8 +568,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_37",
@@ -473,8 +585,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "greenjobs.de - Umwelt macht Karriere (https://www.greenjobs.de/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_38",
@@ -487,8 +602,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Jobplattform für Jobs bei zukunfts- und werteorientierten Unternehmen (https://goodjobs.eu/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_39",
@@ -501,8 +619,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_40",
@@ -515,8 +636,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_41",
@@ -529,8 +653,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_42",
@@ -543,8 +670,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_43",
@@ -557,8 +687,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_44",
@@ -571,8 +704,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Pflegia - Die besten Pflege Stellenangebote! | Pflegia (https://pflegia.de/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_45",
@@ -585,8 +721,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Willkommen bei logistik-jobs.de - Stellenangebote und Jobbörse für Logistik (https://logistik-jobs.de/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_46",
@@ -599,8 +738,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "HandwerkerStellen.de - Stellenmarkt für Handwerksberufe (https://www.handwerkerstellen.de/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_47",
@@ -613,8 +755,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_48",
@@ -627,8 +772,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "JobTeaser - Internship, apprenticeship, first job, your next job is on JobTeaser! (https://jobteaser.com/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_49",
@@ -641,8 +789,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Workwise – Jobs & Stellenangebote ohne Anschreiben (https://workwise.io/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_50",
@@ -655,8 +806,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Job search on jobs.ch, the leading online job portal on the Swiss market (https://jobs.ch/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_51",
@@ -669,8 +823,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "All job offers available in French-speaking Switzerland on jobup.ch (https://www.jobup.ch/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_52",
@@ -683,8 +840,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_53",
@@ -697,8 +857,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_54",
@@ -711,8 +874,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "www.ostjob.ch (https://www.ostjob.ch/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_55",
@@ -725,8 +891,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "www.zentraljob.ch (https://www.zentraljob.ch/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_56",
@@ -739,8 +908,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Jobs und Stellen bei Publicjobs | publicjobs.ch (https://publicjobs.ch/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_57",
@@ -753,8 +925,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "175 IT & Software developer jobs in Switzerland - SwissDevJobs (https://swissdevjobs.ch/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_58",
@@ -767,8 +942,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "karriere.at: Jobs - Jobsuche - Jobbörse - Stellenangebote (https://karriere.at/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_59",
@@ -781,8 +959,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "jobs.at - Deine Jobbörse in Österreich - Jobs Österreich (https://www.jobs.at/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_60",
@@ -795,8 +976,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Jobbörse Stepstone - Stellenangebote in Österreich (https://www.stepstone.at/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_61",
@@ -809,8 +993,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_62",
@@ -823,8 +1010,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_63",
@@ -837,8 +1027,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "hokify - deine mobile Job-Plattform | Jobbörse | Stellenangebote (https://hokify.at/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_64",
@@ -851,8 +1044,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_65",
@@ -865,8 +1061,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "METAJob: Jobs - Jobsuche - Jobsuchmaschine (https://www.metajob.at/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_66",
@@ -879,8 +1078,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Salzburger Nachrichten: Aktuell 1.165 offene Stellen | Karriere SN (https://karriere.sn.at/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_67",
@@ -893,8 +1095,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Remote Work: Jobs, Companies & Virtual Teams - Remote.co (https://remote.co/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_68",
@@ -907,8 +1112,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Remote Jobs | Working Nomads (https://www.workingnomads.com/jobs)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_69",
@@ -921,8 +1129,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Find Startup Jobs Near You and Remote Jobs | Wellfound (https://wellfound.com/jobs/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_70",
@@ -935,8 +1146,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "FlexJobs: Best Work From Home Jobs, Online Jobs & More (https://flexjobs.com/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Öffentliche Einstiegsseite gelesen; mögliche Bezahlschranke, kein Kauf autorisiert."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Öffentliche Einstiegsseite gelesen; mögliche Bezahlschranke, kein Kauf autorisiert.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_71",
@@ -949,8 +1163,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Remote Jobs: Design, Marketing, Programming, Writing & More (https://justremote.co/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_72",
@@ -963,8 +1180,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Remote Jobs - NoDesk (https://nodesk.co/remote-jobs/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_73",
@@ -977,8 +1197,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "EU Remote Jobs - Remote Jobs in Europe & European Time Zones (https://euremotejobs.com/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_74",
@@ -991,8 +1214,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Remote Jobs | REMOTEWX (https://remotewx.com/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_75",
@@ -1005,8 +1231,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "The largest remote job platform with over 200,000 remote jobs (https://jobgether.com/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_76",
@@ -1019,8 +1248,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "🧨 Dynamite Jobs: The Best Remote Jobs in September 2026 (https://dynamitejobs.com/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_77",
@@ -1033,8 +1265,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_78",
@@ -1047,8 +1282,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Find remote jobs | Remote (https://remote.com/jobs/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_79",
@@ -1061,8 +1299,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_80",
@@ -1075,8 +1316,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Language selection | EURES (EURopean Employment Services) (https://eures.europa.eu/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "API-Datenextraktion laut EURES auf anerkannte Partner beschränkt; öffentliche UI prüfen."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "API-Datenextraktion laut EURES auf anerkannte Partner beschränkt; öffentliche UI prüfen.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_81",
@@ -1089,8 +1333,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Find jobs abroad with languages | Europe Language Jobs (https://europelanguagejobs.com/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_82",
@@ -1103,8 +1350,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_83",
@@ -1117,8 +1367,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_84",
@@ -1131,8 +1384,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_85",
@@ -1145,8 +1401,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "707 IT & Softwareentwickler Stellenangebote in Deutschland - GermanTechJobs (https://germantechjobs.de/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_86",
@@ -1159,8 +1418,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Welcome to the Jungle — Work with the company you belong to (https://welcometothejungle.com/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_87",
@@ -1173,8 +1435,12 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Welcome To The Jungle UK (formerly Otta) - Find a job (https://otta.com/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "follow_canonical_regional_portal",
-      "note": "Weiterleitung zu Welcome to the Jungle UK; regionaler Zugang, keine unabhängige zusätzliche Börse."
+      "run_action": "use_canonical_source",
+      "note": "Weiterleitung zu Welcome to the Jungle UK; regionaler Zugang, keine unabhängige zusätzliche Börse.",
+      "markets": [
+        "international"
+      ],
+      "canonical_source_id": "source_86"
     },
     {
       "id": "source_88",
@@ -1187,8 +1453,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Jobs in Dubai and Middle East | GulfTalent (https://www.gulftalent.com/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_89",
@@ -1201,8 +1470,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Jobs in Gulf - Jobs in Middle East - Job Search - Job Vacancies - Naukrigulf (https://www.naukrigulf.com/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_90",
@@ -1215,8 +1487,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Jobs in UAE | Dubizzle UAE (https://dubizzle.com/jobs/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_91",
@@ -1229,8 +1504,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Latest Jobs in Gulf (2026), Job Vacancies, Recruitment -foundit Gulf Formerly Monster Gulf (https://founditgulf.com/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_92",
@@ -1243,8 +1521,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Jobs and Recruitment on Reed.co.uk, the UK's #1 job site (https://reed.co.uk/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_93",
@@ -1257,8 +1538,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_94",
@@ -1271,8 +1555,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_95",
@@ -1285,8 +1572,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_96",
@@ -1299,8 +1589,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_97",
@@ -1313,8 +1606,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_98",
@@ -1327,8 +1623,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_99",
@@ -1341,8 +1640,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Hellowork | Offres Emploi, Alerte mail, CV et Recrutement en France (https://www.hellowork.com/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_100",
@@ -1355,8 +1657,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Offres d’emploi cadres, Conseils, Recrutement | Apec (https://www.apec.fr/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_101",
@@ -1369,8 +1674,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Accueil | France Travail (https://francetravail.fr/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_102",
@@ -1383,8 +1691,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Ledige stillinger - arbeidsplassen.no (https://arbeidsplassen.nav.no/stillinger)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_103",
@@ -1397,8 +1708,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Jobnet (https://jobnet.dk/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_104",
@@ -1411,8 +1725,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Arbetsförmedlingen.se - Arbetsförmedlingen (https://arbetsformedlingen.se/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_105",
@@ -1425,8 +1742,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_106",
@@ -1439,8 +1759,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "SEEK - Australia's no. 1 jobs, employment, career and recruitment site (https://seek.com.au/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_107",
@@ -1453,8 +1776,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Job Bank (https://www.jobbank.gc.ca/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_108",
@@ -1467,8 +1793,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "USAJOBS - The Federal Government's official employment site (https://usajobs.gov/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_109",
@@ -1481,8 +1810,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_110",
@@ -1495,8 +1827,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "LZ Jobs - der Stellenmarkt für Fach- und Führungskräfte in der Lebensmittelbranche – LZ Jobs (https://lz.jobs/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_111",
@@ -1509,8 +1844,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_112",
@@ -1523,8 +1861,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_113",
@@ -1537,8 +1878,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Vertrieb Jobs - Aktuelle Stellenangebote & Jobs bei salesjob.de (https://www.salesjob.de/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_114",
@@ -1551,8 +1895,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Finance Jobs – Definitive Source for Jobs in Finance (https://www.financejobs.net/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_115",
@@ -1565,8 +1912,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "System Maintenance (https://www.efinancialcareers.de/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_116",
@@ -1579,8 +1929,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_117",
@@ -1593,8 +1946,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_118",
@@ -1607,8 +1963,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_119",
@@ -1621,8 +1980,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_120",
@@ -1635,8 +1997,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "academics - der führende Stellenmarkt für Wissenschaft, Forschung, Öffentliches & Gesellschaft (https://www.academics.de/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_121",
@@ -1649,8 +2014,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Jobs and opportunities | EURAXESS (https://euraxess.ec.europa.eu/jobs)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "international"
+      ]
     },
     {
       "id": "source_122",
@@ -1663,8 +2031,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "eejobs.de - die Jobbörse für die Energiewende (https://www.eejobs.de/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_123",
@@ -1677,8 +2048,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_124",
@@ -1691,8 +2065,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Alle Jobs für Entwickler, Programmierer, Engineers | softwareentwickler-jobs.de (https://www.softwareentwickler-jobs.de/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_125",
@@ -1705,8 +2082,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_126",
@@ -1719,8 +2099,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_127",
@@ -1733,8 +2116,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_128",
@@ -1747,8 +2133,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_129",
@@ -1761,8 +2150,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Startseite | Jobs-im-Allgäu (https://www.jobs-im-allgaeu.de/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_130",
@@ -1775,8 +2167,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Stellenangebote Berlin | Jobs in Berlin | Berliner Zeitung (https://www.berliner-jobmarkt.de/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_131",
@@ -1789,8 +2184,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Jobbörse der Neuen Westfälischen Zeitung Stellenangebote - job.nw.de (https://jobs.nw.de/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_132",
@@ -1803,8 +2201,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Jobs in Dresden: Jobbörse Sachsen & Umgebung | sz-jobs.de (https://www.sz-jobs.de/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_133",
@@ -1817,8 +2218,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "ZEIT Stellenmarkt - Jobbörse der ZEIT - Alle aktuellen Jobs im ZEIT Stellenmarkt (https://jobs.zeit.de/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_134",
@@ -1831,8 +2235,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Jobs und Stellenangebote | FAZ Stellenmarkt (https://stellenmarkt.faz.net/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_135",
@@ -1845,8 +2252,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Jobbörse von kimeta Stellenangebote - kimeta (https://www.kimeta.de/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_136",
@@ -1859,8 +2269,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "www.adzuna.de (https://www.adzuna.de/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_137",
@@ -1873,8 +2286,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Talent.com: Job Search | Find Jobs Hiring Near You (https://www.talent.com/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_138",
@@ -1887,8 +2303,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Careerjet (https://www.careerjet.de/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_139",
@@ -1901,8 +2320,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_140",
@@ -1915,8 +2337,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_141",
@@ -1929,8 +2354,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Startseite - Regio-Jobanzeiger - Ihre regionale Jobbörse (https://www.regio-jobanzeiger.de/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_142",
@@ -1943,8 +2371,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Internal Error ()",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_143",
@@ -1957,8 +2388,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Jobbörse BACKINJOB.DE | Mit uns finden Sie die perfekte Stelle! (https://www.backinjob.de/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     },
     {
       "id": "source_144",
@@ -1971,8 +2405,11 @@
       "reviewed_on": "2026-09-17",
       "evidence_title": "Eine Jobbörse - alle Jobs | www.jobbörse.de (https://www.xn--jobbrse-d1a.de/)",
       "listing_and_application_flow_verified": false,
-      "run_action": "browser_check_required",
-      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage."
+      "run_action": "adapter_if_available_then_host_browser",
+      "note": "Homepage-Prüfung ist keine erfolgreiche Stellenabfrage.",
+      "markets": [
+        "germany"
+      ]
     }
   ]
 }

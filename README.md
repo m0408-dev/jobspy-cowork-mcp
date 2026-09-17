@@ -11,6 +11,10 @@ No paid API or model call is required by this server.
   as already scraped sources. No US-heavy feeds are added automatically.
 - `market="international"` explicitly selects the remote API group instead. It does not
   add Germany's federal database. `sources=[...]` is an explicit override for either mode.
+- Every broad search also creates a persistent task for **every non-alias source and query**
+  in its selected catalog market. `market="worldwide"` includes all 143 non-alias entries;
+  the 144th entry is an alias, not another board. Research candidates remain explicitly unverified.
+  API overrides do not silently shrink this browser scope. Use the narrow tools for targeted calls.
 - Working language is distinct from geography and chosen by the caller, never forced to German.
   `german_evidence` is optional evidence metadata labelling explicit language signals, German ad text,
   or unknown; it does not promise German is the working language or discard uncertain postings.
@@ -41,6 +45,9 @@ No paid API or model call is required by this server.
 | `list_job_sources` | Capabilities/defaults/coverage gaps, without network calls |
 | `search_employer_jobs` | Explicit Greenhouse, Lever or Personio employer board |
 | `discover_job_sources` | Optional Bing RSS discovery of additional board/employer links |
+| `get_browser_tasks` | Paginated source/query tasks; optional pending-only view |
+| `record_browser_check` | Persist observed browser evidence and import jobs without duplicates |
+| `get_search_coverage` | Paginated audit of every selected source and its outstanding work |
 
 ### Token-efficient workflow
 
@@ -52,6 +59,10 @@ No paid API or model call is required by this server.
    require browser inspection. No hidden bulk enrichment.
 5. International searches are separate calls, e.g. `market="international", search_term="German support"`.
    International JobSpy additionally requires explicit `location` and `country_indeed`.
+6. Execute `get_browser_tasks` pages with the host browser and record observations. With
+   `pending_only=true`, restart at offset zero after updates (stable task IDs, shrinking view).
+7. `get_search_coverage` separates not-attempted, attempted-but-pending, and checked documented scopes.
+   Queuing is not execution. Blocked and partial checks stay open. No browser means an incomplete run.
 
 Compact JSON omits descriptions and null fields; default page size is 30 with a 24k-character budget.
 **Fetched jobs are never removed to fit a response.** Every fetched row is saved first. Detailed pages may
@@ -81,11 +92,13 @@ Result pagination (`next_offset`) and upstream pagination (`source_offset`) are 
 ## Honest coverage limits
 
 Expanded source research is maintained in [SOURCE_CATALOG.md](SOURCE_CATALOG.md)
-and machine-readable [source_catalog.json](source_catalog.json). This catalog is
-not yet wired into runtime scheduling: it distinguishes existing adapters,
-readable homepages, unresolved access/identity checks and aliases. The required
-future full-run policy is to attempt every source in the explicitly selected
-market segments, with a recorded status for each, rather than silently select a few.
+and machine-readable [source_catalog.json](source_catalog.json). The catalog now drives
+runtime browser planning; market membership is data, not profession-specific code.
+Existing adapters fetch automatically. Additional sources use host-browser tasks with
+entry URLs, exact queries, filters and indexed-search fallbacks. Tasks are saved with the
+snapshot and survive process restarts until the snapshot TTL (six hours by default).
+The source scope is frozen per snapshot so later catalog additions cannot rewrite an old audit.
+Neither a readable homepage nor a queued task is counted as a verified search or working scraper.
 
 Nine public APIs, eight JobSpy adapters, three employer ATS types. XING, StepStone, Monster,
 blocked listings and application flows still require an independent browser. Discovery is a search-engine

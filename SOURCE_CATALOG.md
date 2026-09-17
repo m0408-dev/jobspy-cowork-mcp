@@ -6,7 +6,7 @@
 
 Jeder Run berücksichtigt sämtliche Katalogquellen seiner ausdrücklich gewählten Marktsegmente, nicht nur eine feste kleine Auswahl. Internationale Segmente bleiben separat; bei einem weltweiten Run werden alle Segmente einbezogen. Für jede Quelle werden Versuch, Ergebnis, Zeitpunkt und verbleibende Browserarbeit protokolliert. Blockaden führen zu Browser-/Alternativprüfungen und niemals zur Behauptung „keine Stellen“. Keine Berufsfilter im Werkzeug. Kostenpflichtige Zugriffe werden nicht gekauft.
 
-**Dieser Stand erweitert die Liste, nicht die live implementierten Scraper.** Die technische Vollkatalog-Orchestrierung ist noch umzusetzen. Homepage lesbar bedeutet weder Listing- noch Formularprüfung. Die bestehenden 17 Adapter werden nicht durch diese Recherche zu 144 Adaptern.
+**Ab Version 3.3 ist der Katalog an die Suchlauf-Planung angebunden.** Jede gewählte Quelle erhält pro Suchbegriff einen gespeicherten Browserauftrag; bestehende Adapter laden zuvor automatisch Ergebnisse. Ein geplanter Auftrag zählt nicht als ausgeführte Prüfung. Homepage lesbar bedeutet weder Listing- noch Formularprüfung. Die bestehenden 17 Adapter werden dadurch nicht zu 144 Scrapern. `get_search_coverage` zeigt für jede Quelle offene und tatsächlich dokumentierte Arbeit.
 
 ## Bisheriger Bestand
 

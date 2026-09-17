@@ -8,6 +8,7 @@ import threading
 import subprocess
 import sys
 import json
+import time
 from pathlib import Path
 from urllib.parse import urlsplit
 from typing import Annotated, Literal
@@ -17,6 +18,7 @@ from fastmcp import FastMCP
 from fastmcp.server.auth import StaticTokenVerifier
 from starlette.responses import PlainTextResponse
 from results import ResultStore, encode
+from catalog import CATALOG, select_sources, coverage
 from browser_handoff import make_tasks, summary, INSTRUCTIONS, register_browser_tools
 from sources import (API_SOURCES, REMOTE_SOURCES, SOURCE_INFO, fetch_sources, _aa_fetch_details,
                      remote_confidence, remote_signals, relevance, date_ordinal,
@@ -35,7 +37,7 @@ SITES = ["indeed", "linkedin", "glassdoor", "google", "zip_recruiter", "bayt", "
 GERMANY_BOARDS = ["indeed", "linkedin", "glassdoor", "google"]
 SiteName = Literal["indeed", "linkedin", "glassdoor", "google", "zip_recruiter", "bayt", "naukri", "bdjobs"]
 ApiSource = Literal["arbeitsagentur", "himalayas", "remotive", "remoteok", "arbeitnow", "jobicy", "hackernews", "weworkremotely", "themuse"]
-Market = Literal["germany", "international"]
+Market = Literal["germany", "international", "worldwide"]
 READ = {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": True}
 auth = StaticTokenVerifier(tokens={AUTH_TOKEN: {"sub": "owner", "client_id": "cowork"}}) if AUTH_TOKEN else None
 mcp = FastMCP(name="JobSpy Job Search", auth=auth, instructions=(
@@ -88,10 +90,14 @@ def _run_scrape(**kwargs):
         _JOBSPY_LOCK.release()
 
 def _snapshot(jobs, meta, response_format="concise", page_size=30):
+    if meta.get("catalog_scope"):
+        meta["_catalog_sources"] = [{k:r[k] for k in ("id","name","url","research_status")} for r in select_sources(meta["market"])]
     tasks = make_tasks(meta)
     if tasks:
         meta["_browser_tasks"] = tasks
         meta["browser_handoff"] = summary(tasks)
+    if meta.get("catalog_scope"):
+        meta["catalog_coverage"] = {k:v for k,v in coverage(meta).items() if k != "entries"}
     jobs, duplicates = merge_jobs(jobs)
     for job in jobs:
         job["remote_confidence"] = remote_confidence(job)
@@ -148,14 +154,36 @@ async def get_job_details(result_id: str, job_ids: Annotated[list[str], Field(mi
     return STORE.details(result_id, job_ids, text_offset, text_chars)
 
 @mcp.tool(annotations={**READ, "title": "Source coverage"})
-def list_job_sources() -> str:
+def list_job_sources(market: Market = "germany", offset: Annotated[int, Field(ge=0)] = 0,
+    page_size: Annotated[int, Field(ge=1, le=30)] = 15) -> str:
     """Available adapters, market defaults and explicit browser gaps. No network calls."""
-    return encode({"version": "3.2.0", "defaults": {"germany": ["arbeitsagentur", "arbeitnow", *GERMANY_BOARDS], "international": REMOTE_SOURCES},
+    rows = select_sources(market)
+    end = min(offset+page_size, len(rows))
+    return encode({"version": "3.3.0", "defaults": {"germany": ["arbeitsagentur", "arbeitnow", *GERMANY_BOARDS], "international": REMOTE_SOURCES},
+        "broad_scope":"All selected catalog sources, adapters plus mandatory host-browser queue",
+        "catalog_entries":len(CATALOG["sources"]), "selected_sources":len(rows), "market":market,
+        "sources_page":[{k:r[k] for k in ("id","name","url","research_status")} for r in rows[offset:end]],
+        "next_offset":end if end < len(rows) else None,
         "default_api_sources":{"germany":["arbeitsagentur","arbeitnow"],"international":REMOTE_SOURCES},
         "default_jobspy_sources":{"germany":GERMANY_BOARDS,"international":[]},
         "api_sources": API_SOURCES, "jobspy_sources": SITES, "total_direct_sources": len(API_SOURCES)+len(SITES),
-        "catalog": SOURCE_INFO, "browser_required": ["xing", "stepstone", "monster", "blocked boards", "application forms"],
+        "browser_required": ["catalog sources", "blocked boards", "application forms"],
         "ats": ["greenhouse", "lever", "personio"], "coverage": "Finite adapters, not the whole internet."})
+
+@mcp.tool(annotations={**READ, "title":"Audit search coverage"})
+def get_search_coverage(result_id: str, offset: Annotated[int, Field(ge=0)] = 0,
+    page_size: Annotated[int, Field(ge=1, le=30)] = 15) -> str:
+    """Saved per-source attempts, direct results and outstanding browser work. No upstream calls."""
+    data = coverage(STORE.load(result_id)["meta"])
+    entries = data.pop("entries")
+    page = []
+    for entry in entries[offset:offset+page_size]:
+        if page and len(encode(page))+len(encode(entry)) > 18000:
+            break
+        page.append(entry)
+    end = offset+len(page)
+    data.update(result_id=result_id, entries=page, next_offset=end if end<len(entries) else None)
+    return encode(data)
 
 async def _jobspy_batch(terms, location, country, sites, limit, hours, remote, details, offset=0, job_type=None, distance=50, google_query=None):
     jobs, meta = [], {}
@@ -211,7 +239,7 @@ async def search_all_jobs(search_term: Annotated[str, Field(min_length=1, max_le
     country_indeed: str | None = None, jobspy_sites: list[SiteName] | None = None,
     max_pages: Annotated[int, Field(ge=1, le=30)] = 5, source_offset: Annotated[int, Field(ge=0)] = 0,
     page_size: Annotated[int, Field(ge=1, le=100)] = 30) -> str:
-    """Any occupation. Germany defaults to AA, Arbeitnow, Indeed, LinkedIn, Glassdoor and Google plus browser checks.
+    """Any occupation. All catalog sources in market are planned; existing adapters fetch first, others need host-browser checks.
     Explicit sources restrict API selection and disable automatic JobSpy, unless include_jobspy=True or jobspy_sites is set.
     include_jobspy=False opts out. International feeds are opt-in; international JobSpy needs explicit country/location.
     search_terms supplies caller-chosen variants; expand_query=True is no longer supported. Details are opt-in.
@@ -219,13 +247,14 @@ async def search_all_jobs(search_term: Annotated[str, Field(min_length=1, max_le
     """
     use_jobspy = include_jobspy if include_jobspy is not None else (jobspy_sites is not None or (market=="germany" and sources is None))
     boards = list(dict.fromkeys(jobspy_sites if jobspy_sites is not None else (GERMANY_BOARDS if market=="germany" else ["indeed","linkedin"])))
-    if use_jobspy and boards and market == "international" and (not country_indeed or location == "Germany"):
+    if use_jobspy and boards and market != "germany" and (not country_indeed or location == "Germany"):
         raise ValueError("International JobSpy requires explicit location and country_indeed.")
-    selected = list(dict.fromkeys(sources)) if sources is not None else (["arbeitsagentur", "arbeitnow"] if market == "germany" else list(REMOTE_SOURCES))
+    selected = list(dict.fromkeys(sources)) if sources is not None else (["arbeitsagentur", "arbeitnow"] if market == "germany" else (list(API_SOURCES) if market == "worldwide" else list(REMOTE_SOURCES)))
     jobs, meta = await fetch_sources(selected, search_term, location if market == "germany" else None,
         remote_only, results_per_source, days_old, dach_only=dach_only, extra_terms=search_terms,
         expand_query=expand_query, fetch_details=fetch_details, max_pages=max_pages, source_offset=source_offset)
     meta.update(market=market, source_selection="explicit" if sources is not None else "market_default",
+        catalog_scope="all_selected_market_sources", remote_boost=remote_only,
         browser_sweep=True, search_location=location if market=="germany" or location!="Germany" else "",
         days_old=days_old,
         working_language="unverified; german_evidence is a text hint", browser_gaps=["xing", "stepstone", "monster", "application forms"])
@@ -235,6 +264,7 @@ async def search_all_jobs(search_term: Annotated[str, Field(min_length=1, max_le
             boards, min(results_per_source, 100), days_old*24, False, fetch_details, source_offset)
         jobs.extend(more)
         meta["per_source"].update(board_meta)
+    meta["direct_attempts_finished_at"] = time.time()
     return _snapshot(jobs, meta, response_format, page_size)
 
 @mcp.tool(annotations={**READ, "title": "Search German federal database"})

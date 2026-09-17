@@ -35,11 +35,12 @@ async def main():
     url='http://127.0.0.1:8000'+os.environ.get('MCP_HTTP_PATH','/mcp/')
     async with Client(url, auth=os.environ.get('MCP_AUTH_TOKEN') or None) as c:
         ts=await c.list_tools()
-        assert len(ts)==11
+        assert len(ts)==12
         r=await c.call_tool('list_job_sources',{})
         d=json.loads(r.content[0].text)
-        assert d['version']=='3.2.0'
-        print('MCP protocol OK: 11 tools, v3.2.0')
+        assert d['version']=='3.3.0'
+        assert d['catalog_entries']==144
+        print('MCP protocol OK: 12 tools, v3.3.0, full catalog loaded')
 asyncio.run(main())'''
 
 def restore(backup):
