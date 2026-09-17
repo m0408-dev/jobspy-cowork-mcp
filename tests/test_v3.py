@@ -126,11 +126,12 @@ class AsyncTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(calls),1)
     async def test_defaults_no_international_calls(self):
         mock = AsyncMock(return_value=([],{"queries_used":["support"],"per_source":{}}))
-        with patch("server.fetch_sources",mock), patch("server._snapshot",return_value="ok"):
+        with patch("server.fetch_sources",mock), patch("server._snapshot",return_value="ok"), patch("server._jobspy_batch",AsyncMock(return_value=([],{}))) as boards:
             await server.search_all_jobs("support")
         self.assertEqual(mock.call_args.args[0],["arbeitsagentur","arbeitnow"])
         self.assertFalse(mock.call_args.kwargs["expand_query"])
         self.assertFalse(mock.call_args.kwargs["fetch_details"])
+        self.assertEqual(boards.call_args.args[3],["indeed","linkedin","glassdoor","google"])
     async def test_international_is_separate(self):
         mock = AsyncMock(return_value=([],{"queries_used":["German support"],"per_source":{}}))
         with patch("server.fetch_sources",mock), patch("server._snapshot",return_value="ok"):

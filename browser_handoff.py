@@ -84,7 +84,7 @@ def validate_url(url):
     return url
 
 def register_browser_tools(mcp, store, read):
-    @mcp.tool(annotations=read)
+    @mcp.tool(annotations={**read,"title":"Read host browser tasks"})
     def get_browser_tasks(result_id: str, offset: Annotated[int,Field(ge=0)]=0,
         page_size: Annotated[int,Field(ge=1,le=10)]=5) -> str:
         """Read browser tasks and evidence. Execute pending tasks using the host browser; no network call here."""
@@ -98,7 +98,7 @@ def register_browser_tools(mcp, store, read):
         return encode({"result_id":result_id,"instructions":INSTRUCTIONS,"summary":summary(tasks),
             "tasks":selected,"next_offset":end if end<len(tasks) else None})
 
-    @mcp.tool(annotations={"readOnlyHint":False,"destructiveHint":False,"openWorldHint":False,"idempotentHint":True})
+    @mcp.tool(annotations={"readOnlyHint":False,"destructiveHint":False,"openWorldHint":False,"idempotentHint":True,"title":"Save browser observations"})
     def record_browser_check(result_id: str, task_id: str,
         outcome: Literal["checked","checked_no_results","partial","blocked","login_required"],
         browser: Annotated[str,Field(min_length=1,max_length=100)],

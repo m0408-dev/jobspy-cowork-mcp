@@ -38,8 +38,8 @@ async def main():
         assert len(ts)==11
         r=await c.call_tool('list_job_sources',{})
         d=json.loads(r.content[0].text)
-        assert d['version']=='3.1.0'
-        print('MCP protocol OK: 11 tools, v3.1.0')
+        assert d['version']=='3.2.0'
+        print('MCP protocol OK: 11 tools, v3.2.0')
 asyncio.run(main())'''
 
 def restore(backup):

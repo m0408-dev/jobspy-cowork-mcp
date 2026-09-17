@@ -49,7 +49,7 @@ SOURCE_INFO: dict[str, dict[str, str]] = {
     "arbeitnow":      {"coverage": "Germany + EU + remote (best DE-remote API)", "remote": "mixed", "auth": "none"},
     "jobicy":         {"coverage": "remote worldwide (geo=germany for DACH)", "remote": "remote-only", "auth": "none"},
     "hackernews":     {"coverage": "startups/tech 'Who is hiring'", "remote": "mixed", "auth": "none"},
-    "weworkremotely": {"coverage": "remote (programming)", "remote": "remote-only", "auth": "none"},
+    "weworkremotely": {"coverage": "remote, all categories RSS window", "remote": "remote-only", "auth": "none"},
     "themuse":        {"coverage": "global, US-heavy", "remote": "mixed", "auth": "none"},
     "indeed":         {"coverage": "global via JobSpy", "remote": "filterable", "auth": "none (proxy in cloud)"},
     "linkedin":       {"coverage": "global via JobSpy", "remote": "filterable", "auth": "none (rate-limited)"},
@@ -91,135 +91,37 @@ _DACH_OK = re.compile(
 
 
 # --------------------------------------------------------------------------- #
-# Query expansion  —  the fix for German compound nouns
+# Query preparation: no profession dictionaries or semantic expansion.
 # --------------------------------------------------------------------------- #
-#
-# Measured against the live Arbeitsagentur API (München, 2026-07-30):
-#     was=Nachtschicht ->  97 hits
-#     was=Nachtdienst  ->  77 hits
-#     was=Nachtwache   ->   6 hits
-#     was=Nacht        -> 300 hits
-#     overlap Nachtschicht/Nachtdienst = 3   (i.e. they are almost disjoint sets)
-#     union of all three               = 352
-# A single query therefore sees ~28 % of what exists. There is no server-side stemming
-# for German compounds, so the only way to get them all is to FIRE SEVERAL QUERIES and
-# union the results. That is what expand_terms() builds.
-#
-# The rule is generative, not a per-industry dictionary: a compound job word is
-# <modifier><tail>, and tails come in families whose members are interchangeable
-# (Nacht|schicht ~ Nacht|dienst ~ Nacht|wache). Split off a known tail, then re-attach
-# every sibling tail from the same family.
-
-_TAIL_FAMILIES: list[list[str]] = [
-    ["schicht", "dienst", "wache", "arbeit", "einsatz", "betrieb"],
-    ["kraft", "helfer", "helferin", "assistent", "assistenz", "mitarbeiter", "personal", "hilfe"],
-    ["techniker", "monteur", "mechaniker", "elektroniker", "installateur", "handwerker", "meister"],
-    ["berater", "betreuer", "begleiter", "coach"],
-    ["leiter", "leitung", "manager"],
-    ["fahrer", "kurier", "bote", "lieferant"],
-    ["verkäufer", "verkaeufer", "berater", "kassierer"],
-    ["entwickler", "programmierer", "architekt", "ingenieur"],
-    ["administrator", "admin", "betreuer", "operator"],
-    ["pfleger", "pflegerin", "pflege", "helfer"],
-    ["reiniger", "reinigung", "reinigungskraft"],
-    ["support", "service", "hilfe", "betreuung"],
-]
-# tail -> its family (first match wins)
-_TAIL_INDEX: dict[str, list[str]] = {}
-for _fam in _TAIL_FAMILIES:
-    for _t in _fam:
-        _TAIL_INDEX.setdefault(_t, _fam)
-# longest tails first so 'reinigungskraft' beats 'kraft'
-_TAILS_SORTED = sorted(_TAIL_INDEX, key=len, reverse=True)
-
-# Flat synonym groups for terms that are NOT compounds (abbreviations, loan words).
-_SYNONYMS: dict[str, list[str]] = {
-    "support": ["helpdesk", "service desk", "anwenderbetreuung", "kundenbetreuung"],
-    "helpdesk": ["support", "service desk", "servicedesk"],
-    "servicedesk": ["service desk", "helpdesk", "support"],
-    "systemadministrator": ["sysadmin", "systemadministration", "administrator"],
-    "sysadmin": ["systemadministrator", "administrator"],
-    "administrator": ["systemadministrator", "sysadmin"],
-    "fachinformatiker": ["systemintegration", "anwendungsentwicklung"],
-    "it": ["edv", "ict"],
-    "edv": ["it", "ict"],
-    "nachts": ["nacht", "nachtschicht", "nachtdienst"],
-    "putzen": ["reinigung", "reinigungskraft"],
-    "lager": ["lagerist", "lagerhelfer", "kommissionierer"],
-    "wachmann": ["sicherheitsmitarbeiter", "objektschutz", "werkschutz"],
-    "security": ["sicherheitsmitarbeiter", "objektschutz", "werkschutz"],
-    "koch": ["küchenhilfe", "beikoch"],
-    "pflege": ["pflegekraft", "pflegehelfer", "altenpflege"],
-}
 
 MAX_QUERY_VARIANTS = 12
 
 
 def _tokens(term: str) -> list[str]:
-    """Significant query tokens: split on non-word chars, keep len>=2, lower-cased (DE chars kept)."""
-    return [t for t in re.split(r"[^0-9a-zA-Zäöüß]+", (term or "").lower()) if len(t) >= 2]
+    """Generic tokens for ranking only; never generates upstream queries."""
+    return [t for t in re.findall(r"[^\W_]+", (term or "").lower(), re.UNICODE) if len(t) >= 2]
 
 
 def expand_terms(
-    term: str, extra_terms: list[str] | None = None, expand: bool = True,
+    term: str, extra_terms: list[str] | None = None, expand: bool = False,
     max_variants: int = MAX_QUERY_VARIANTS,
 ) -> list[str]:
-    """Build the list of queries to actually fire, most specific first.
-
-    Always includes the caller's own term(s) verbatim and never reorders them away from
-    the front, so an explicit ``search_terms=[...]`` list is honoured exactly. With
-    ``expand=True`` it additionally derives:
-
-      * each individual token of a multi-word query  ("IT-Support" -> "it", "support")
-      * compound splits + sibling tails             ("Nachtschicht" -> "nacht",
-        "nachtdienst", "nachtwache", "nachtarbeit", ...)
-      * flat synonyms for non-compound terms         ("helpdesk" -> "support", ...)
-
-    Deduplicated, capped at ``max_variants`` so one call stays a handful of HTTP requests.
+    """Validate and deduplicate caller-supplied queries without adding occupations.
+    Legacy expand=True is rejected; semantic variants belong to the calling AI.
     """
-    out: list[str] = []
-    seen: set[str] = set()
-
-    def add(t: str | None) -> None:
-        t = (t or "").strip()
-        if t and t.lower() not in seen:
-            seen.add(t.lower())
-            out.append(t)
-
-    add(term)
-    for t in (extra_terms or []):
-        add(t)
-    if not expand:
-        return out[:max_variants]
-
-    base_tokens: list[str] = []
-    for t in [term, *(extra_terms or [])]:
-        base_tokens.extend(_tokens(t))
-
-    # multi-token queries: also try each token alone (AA ANDs its terms, so a 2-word
-    # query is strictly narrower than either word by itself).
-    if len(base_tokens) > 1:
-        for tok in base_tokens:
-            if len(tok) >= 3:
-                add(tok)
-
-    for tok in base_tokens:
-        if len(tok) < 6:
-            continue
-        for tail in _TAILS_SORTED:
-            if tok.endswith(tail) and len(tok) - len(tail) >= 3:
-                stem = tok[: -len(tail)]
-                add(stem)                                   # Nachtschicht -> Nacht
-                for sibling in _TAIL_INDEX[tail]:           # -> Nachtdienst, Nachtwache, ...
-                    if sibling != tail:
-                        add(stem + sibling)
-                break                                       # one split per token is enough
-
-    for tok in base_tokens:
-        for syn in _SYNONYMS.get(tok, []):
-            add(syn)
-
-    return out[:max_variants]
+    if expand:
+        raise ValueError("Automatic semantic expansion was removed; supply explicit search_terms.")
+    out, seen = [], set()
+    for value in [term, *(extra_terms or [])]:
+        value = value.strip()
+        if not value or len(value) > 200:
+            raise ValueError("Queries must be 1-200 characters")
+        if value.casefold() not in seen:
+            out.append(value)
+            seen.add(value.casefold())
+    if len(out) > max_variants:
+        raise ValueError("Too many query variants; split into explicit searches.")
+    return out
 
 
 # --------------------------------------------------------------------------- #

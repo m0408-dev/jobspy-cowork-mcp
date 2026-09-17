@@ -1,20 +1,28 @@
 # JobSpy MCP v3
 
-Personal job-search MCP (FastMCP, Streamable HTTP or stdio). Compact output,
+Generic job-search MCP (FastMCP, Streamable HTTP or stdio), independent of any CV or profession. Compact output,
 explicit market selection, persistent pagination and source-level coverage reports.
 No paid API or model call is required by this server.
 
 ## Search contract
 
-- `market="germany"` is the default: Arbeitsagentur + Arbeitnow, without US-heavy feeds.
+- `search_all_jobs(market="germany")` defaults to six direct sources: Arbeitsagentur, Arbeitnow,
+  Indeed, LinkedIn, Glassdoor and Google. Independent browser checks are additional, not counted
+  as already scraped sources. No US-heavy feeds are added automatically.
 - `market="international"` explicitly selects the remote API group instead. It does not
   add Germany's federal database. `sources=[...]` is an explicit override for either mode.
-- Working language is distinct from geography. Use German-language keywords / "German speaking"
-  for international searches. `german_evidence` labels explicit language signals, German ad text,
+- Working language is distinct from geography and chosen by the caller, never forced to German.
+  `german_evidence` is optional evidence metadata labelling explicit language signals, German ad text,
   or unknown; it does not promise German is the working language or discard uncertain postings.
 - All occupations are allowed. No CV, salary, seniority, phone-share or profession filter is hardcoded.
-- `expand_query`, `include_jobspy` and `fetch_details` default to **false**. More upstream work is opt-in.
-  Explicit `search_terms` are unioned. Optional expansion uses documented German word families in sources.py.
+- `include_jobspy=None` automatically enables the four Germany boards when `sources` is omitted.
+  An explicit `sources` list restricts API selection and disables automatic JobSpy unless
+  `include_jobspy=True` or `jobspy_sites=[...]` is supplied. `include_jobspy=False` always disables it.
+  This keeps precise calls inexpensive while broad calls are actually broad.
+- Only caller-supplied `search_term` / `search_terms` are queried, with case-insensitive deduplication.
+  The old profession synonym/compound dictionaries have been removed. `expand_query=True` raises
+  an explicit migration error; semantic alternatives belong to the AI, not the connector.
+  `fetch_details` stays opt-in. Profession, qualification, salary and suitability are not server policy.
 - `remote_only` on API searches is a ranking boost, **not** a strict filter and no longer adds redundant
   checkbox queries. Direct `search_jobs(is_remote=True)` uses the upstream filter, without rewriting source flags.
 - Text-based remote labels are heuristics, not verification. Missing bodies, negations and mixed signals are visible.
@@ -24,9 +32,9 @@ No paid API or model call is required by this server.
 
 | Tool | Purpose |
 |---|---|
-| `search_all_jobs` | Market-scoped API search, optional explicit JobSpy boards |
+| `search_all_jobs` | Broad six-source Germany default; explicit overrides and separate international mode |
 | `search_german_jobs` | Federal German database only |
-| `search_remote_jobs` | Remote-oriented search, Germany default, international opt-in |
+| `search_remote_jobs` | Same broad defaults with remote ranking, international opt-in |
 | `search_jobs` | Direct selection of eight JobSpy boards; explicit location/country |
 | `get_result_page` | Next compact/detailed page from a saved result |
 | `get_job_details` | Stored texts for up to three IDs; optional missing AA details only |
@@ -54,7 +62,7 @@ raise explicit errors rather than pretending a partial list is complete.
 
 Result pagination (`next_offset`) and upstream pagination (`source_offset`) are different:
 
-- Saved `next_offset` is a row offset in an immutable search snapshot.
+- Saved `next_offset` is a row offset in a persistent snapshot; browser feedback can append/enrich jobs.
 - API `source_offset` is a **page offset**. Arbeitsagentur/Himalayas report per-query
   `next_source_offsets`; continue a specific query with query expansion disabled and that offset.
   Arbeitnow/The Muse report a single `next_source_offset`.

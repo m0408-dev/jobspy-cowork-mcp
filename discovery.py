@@ -69,7 +69,7 @@ def register_tools(mcp, snapshot, read):
         market: Literal["germany", "international"] = "germany",
         limit: Annotated[int, Field(ge=1, le=20)] = 10) -> str:
         """On-demand web discovery via Bing RSS for new boards/employers. Returns unverified links, not scraped jobs; may be blocked."""
-        suffix = " Stellenangebote Jobbörse Deutschland" if market == "germany" else " German speaking jobs careers"
+        suffix = " Stellenangebote Jobbörse Deutschland" if market == "germany" else " jobs careers"
         try:
             async with CachedClient(timeout=20, follow_redirects=False) as client:
                 r = await client.get("https://www.bing.com/search", params={"q": query+suffix, "format": "rss"})

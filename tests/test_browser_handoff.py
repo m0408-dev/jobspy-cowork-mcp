@@ -76,7 +76,7 @@ class HandoffTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(d["browser_handoff"]["pending"],1)
 
     async def test_broad_search_always_independent_sweep(self):
-        with patch("server.fetch_sources",AsyncMock(return_value=([],{"per_source":{},"queries_used":["support"]}))):
+        with patch("server.fetch_sources",AsyncMock(return_value=([],{"per_source":{},"queries_used":["support"]}))), patch("server._jobspy_batch",AsyncMock(return_value=([],{}))):
             d=await self.call("search_all_jobs",search_term="support")
         tasks=await self.call("get_browser_tasks",result_id=d["result_id"],page_size=10)
         self.assertEqual({t["source"] for t in tasks["tasks"]},{"linkedin","xing","indeed","stepstone","glassdoor","monster"})
