@@ -2,12 +2,9 @@
 Free job-data sources (no proxy, no API key beyond public client-ids).
 =======================================================================
 
-Design rule (v2, RAW-PULL): **this module maximises recall. It does not decide
-relevance.** Nothing is dropped because it "looks off-topic" — the calling AI is the
-classifier. Everything we know about a posting (relevance score, remote signals,
-date, source) is attached to the job so the AI can rank and filter, and results are
-*sorted* worst-last so that if the response size cap truncates, the least relevant
-go first. Whenever a cap does bite, it is reported in the payload — never silent.
+V3: caller-selected sources, bounded pages, full stored texts and explicit errors.
+Relevance scores only rank; market/language decisions belong to the caller.
+All fetched records survive output paging. Upstream retrieval is finite and reported.
 
 Common job schema returned by every ``fetch_*`` coroutine::
 
@@ -27,14 +24,16 @@ import datetime as _dt
 import html
 import logging
 import re
+from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 from email.utils import parsedate_to_datetime
 from typing import Any
 
 import httpx
+from http_cache import CachedClient
 
 log = logging.getLogger("jobspy-mcp.sources")
 
-# Default aggregated set — all sources on (recall-first; the AI classifies downstream).
+# Supported APIs, not the default selection (server.py selects a market explicitly).
 API_SOURCES = [
     "arbeitsagentur", "himalayas", "remotive", "remoteok",
     "arbeitnow", "jobicy", "hackernews", "weworkremotely", "themuse",
@@ -43,7 +42,7 @@ API_SOURCES = [
 REMOTE_SOURCES = ["himalayas", "remotive", "remoteok", "arbeitnow", "jobicy", "hackernews", "weworkremotely", "themuse"]
 
 SOURCE_INFO: dict[str, dict[str, str]] = {
-    "arbeitsagentur": {"coverage": "Germany (largest official DB, ~8k hits for a term like 'IT-Support')", "remote": "read the description — the arbeitszeit=ho checkbox is almost never set by employers", "auth": "free public client-id"},
+    "arbeitsagentur": {"coverage": "Germany; endpoint may reject public-client access", "remote": "text hints only", "auth": "public client-id, may be blocked"},
     "himalayas":      {"coverage": "remote worldwide", "remote": "remote-only", "auth": "none"},
     "remotive":       {"coverage": "remote worldwide", "remote": "remote-only", "auth": "none (server ignores ?search → we rank client-side)"},
     "remoteok":       {"coverage": "remote tech", "remote": "remote-only", "auth": "none"},
@@ -56,7 +55,7 @@ SOURCE_INFO: dict[str, dict[str, str]] = {
     "linkedin":       {"coverage": "global via JobSpy", "remote": "filterable", "auth": "none (rate-limited)"},
 }
 
-_UA = "Mozilla/5.0 (compatible; jobspy-mcp/2.0; +https://github.com/m0408-dev/jobspy-cowork-mcp)"
+_UA = "jobspy-mcp/3.0 (+https://github.com/m0408-dev/jobspy-cowork-mcp)"
 _HEADERS = {"User-Agent": _UA, "Accept": "application/json"}
 _TIMEOUT = httpx.Timeout(30.0, connect=10.0)
 
@@ -265,13 +264,13 @@ def relevance(job: dict[str, Any], terms: list[str]) -> float:
     return round(min(1.0, 0.7 * (total / len(toks)) + 0.3 * best), 3)
 
 
-def _strip_html(text: Any, limit: int = 1500) -> str | None:
+def _strip_html(text: Any, limit: int | None = None) -> str | None:
     if not text:
         return None
-    s = html.unescape(_TAG_RE.sub(" ", str(text)))
+    s = _TAG_RE.sub(" ", html.unescape(html.unescape(str(text))))
     s = _WS_RE.sub("\n", s)
     s = re.sub(r"[ \t]{2,}", " ", s).strip()
-    if len(s) > limit:
+    if limit is not None and len(s) > limit:
         s = s[:limit].rstrip() + " …[truncated — open job_url for full text]"
     return s or None
 
@@ -294,11 +293,19 @@ def dach_ok(location: str | None) -> bool:
     loc = (location or "").strip().lower()
     if not loc:
         return True
-    if _DACH_OK.search(loc):
-        return True
     if _NON_DACH.search(loc):
         return False
     return True
+
+
+def german_evidence(job: dict[str, Any]) -> str:
+    """Language evidence only; a German location alone proves nothing about language."""
+    text = f"{job.get('title') or ''} {job.get('description') or ''}"
+    if re.search(r"german[- ]speaking|deutschsprach|deutschkenntnisse|fluent.{0,20}german|german.{0,20}(?:fluent|native|c1|c2)", text, re.I):
+        return "explicit_signal"
+    if len(re.findall(r"\b(?:und|wir|deine|dein|ihre|aufgaben|kenntnisse|bewerbung|erfahrung)\b", text, re.I)) >= 4:
+        return "german_ad_not_requirement"
+    return "unknown"
 
 
 def _parse_date(date_posted: Any) -> _dt.date | None:
@@ -378,12 +385,14 @@ def remote_confidence(job: dict[str, Any]) -> str:
         # No body text. A title/location can still be explicit ("... 100% Remote").
         hay_t = f"{title} {job.get('location') or ''}"
         if _STRICT_KW.search(hay_t):
-            return "strict"
+            return "unverified_title"
         if REMOTE_KW.search(hay_t):
             return "likely"
         return "unknown"
 
     hay = f"{title} {desc} {job.get('location') or ''}".lower()
+    if re.search(r"(?:no|not|kein(?:e|en)?|nicht)\s+(?:fully\s+|100\s*%\s*)?(?:remote|home\s?office)", hay):
+        return "negative_or_mixed"
     hybrid = bool(_HYBRID_KW.search(hay))
     strict = bool(_STRICT_KW.search(hay))
     if strict and hybrid:
@@ -453,7 +462,8 @@ def _aa_records(data: dict[str, Any]) -> list[dict[str, Any]]:
             "company": j.get("arbeitgeber"),
             "location": loc,
             "is_remote": looks_remote(title),
-            "date_posted": j.get("aktuelleVeroeffentlichungsdatum") or j.get("eintrittsdatum"),
+            "date_posted": j.get("aktuelleVeroeffentlichungsdatum"),
+            "start_date": j.get("eintrittsdatum"),
             "salary": None,
             "job_url": f"https://www.arbeitsagentur.de/jobsuche/jobdetail/{j.get('refnr')}" if j.get("refnr") else None,
             "description": None,
@@ -492,7 +502,7 @@ async def _aa_fetch_details(
                 return
         desc = d.get("stellenangebotsBeschreibung")
         if desc:
-            job["description"] = _strip_html(desc, limit=4000)
+            job["description"] = _strip_html(desc)
             filled += 1
         if d.get("verguetungsangabe") and d["verguetungsangabe"] != "KEINE_ANGABEN":
             job["salary"] = str(d["verguetungsangabe"])
@@ -508,7 +518,7 @@ async def _aa_fetch_details(
 async def fetch_arbeitsagentur(
     client: httpx.AsyncClient, terms: list[str], location: str | None,
     limit: int, days: int, remote_boost: bool = False, fetch_details: bool = True,
-    **_: Any,
+    max_pages: int = 5, source_offset: int = 0, **_: Any,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Bundesagentur für Arbeit — the only source that really covers the German market.
 
@@ -538,6 +548,10 @@ async def fetch_arbeitsagentur(
     results: list[dict[str, Any]] = []
     seen: set[str] = set()
     totals: dict[str, int] = {}
+    errors: list[str] = []
+    next_pages: dict[str, int] = {}
+    exhausted: set[str] = set()
+    calls: dict[str, int] = {}
 
     def _add(recs: list[dict[str, Any]]) -> int:
         added = 0
@@ -556,24 +570,29 @@ async def fetch_arbeitsagentur(
 
     async def _walk(query: dict[str, Any], want: int, label: str) -> None:
         """Page through one query until we have `want` records from it or it runs out."""
-        page = 1
+        page = next_pages.get(label, source_offset + 1)
         got_for_query = 0
-        while got_for_query < want and page <= _AA_MAX_PAGES:
+        while got_for_query < want and calls.get(label, 0) < max_pages and label not in exhausted:
+            calls[label] = calls.get(label, 0) + 1
             try:
                 data = await _page({**query, "page": page})
             except (httpx.HTTPError, ValueError) as exc:
-                log.warning("arbeitsagentur '%s' page %d failed: %s", label, page, exc)
+                errors.append(f"{label}: page {page}: {safe_error(exc)}")
+                exhausted.add(label)
                 return
             recs = _aa_records(data)
-            if page == 1:
+            if label not in totals:
                 # keyed by label, not by `was`: the arbeitszeit=ho leg reuses the same term
                 # and would otherwise overwrite the real total with its near-zero count.
                 totals[label] = int(data.get("maxErgebnisse") or 0)
             if not recs:
+                exhausted.add(label)
                 return
             _add(recs)
+            next_pages[label] = page + 1
             got_for_query += len(recs)
-            if got_for_query >= (data.get("maxErgebnisse") or 0):
+            if page * _AA_PAGE_SIZE >= (data.get("maxErgebnisse") or float("inf")):
+                exhausted.add(label)
                 return
             page += 1
 
@@ -589,12 +608,6 @@ async def fetch_arbeitsagentur(
     if len(results) < limit and terms:
         await _walk({**base, "was": terms[0]}, limit - len(results), str(terms[0]))
 
-    if remote_boost:
-        await asyncio.gather(*(
-            _walk({**base, "was": t, "arbeitszeit": "ho"}, _AA_PAGE_SIZE, f"{t} [homeoffice-flag]")
-            for t in terms[:3]
-        ))
-
     # Rank before capping: the variants are fetched in parallel, so insertion order is
     # arbitrary interleaving — cutting by it would drop good matches at random. Ranking here
     # also means we only pay for detail fetches on postings that survive the cap.
@@ -602,11 +615,11 @@ async def fetch_arbeitsagentur(
         r["relevance"] = relevance(r, terms)
     results.sort(key=lambda j: (-j["relevance"], -date_ordinal(j)))
     scanned = len(results)
-    results = results[:limit]
+    # Retain all fetched records; the result store pages them without tail loss.
 
     enriched = 0
     if fetch_details and results:
-        enriched = await _aa_fetch_details(client, results, limit=len(results))
+        enriched = await _aa_fetch_details(client, results, limit=min(limit, len(results)))
 
     for r in results:
         r.pop("_refnr", None)
@@ -621,39 +634,57 @@ async def fetch_arbeitsagentur(
         "total_per_query": totals,
         "descriptions_fetched": enriched,
         "scanned_before_cap": scanned,
+        "errors": errors,
+        "pages_requested": calls,
+        "next_source_offsets": {k: v-1 for k, v in next_pages.items() if k not in exhausted},
+        "coverage": "partial_error" if errors else ("query_exhausted" if len(exhausted) == len(terms) else "budget_limited"),
+        "description_requests": min(limit, len(results)) if fetch_details else 0,
+        "description_missing_or_failed": max(0, min(limit, len(results))-enriched) if fetch_details else 0,
     }
     return results, meta
 
 
 async def fetch_himalayas(
-    client: httpx.AsyncClient, terms: list[str], location: str | None, limit: int, days: int, **_: Any,
+    client: httpx.AsyncClient, terms: list[str], location: str | None, limit: int, days: int,
+    max_pages: int = 5, source_offset: int = 0, **_: Any,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     out: list[dict[str, Any]] = []
     seen: set[str] = set()
-    for term in terms[:3]:
-        r = await client.get("https://himalayas.app/jobs/api/search",
-                             params={"q": term, "limit": 50}, headers=_HEADERS)
-        r.raise_for_status()
-        for j in r.json().get("jobs", []):
-            url = j.get("applicationLink")
-            if url and url in seen:
-                continue
-            seen.add(url or "")
-            locs = j.get("locationRestrictions") or []
-            out.append({
-                "source": "himalayas",
-                "title": j.get("title"),
-                "company": j.get("companyName"),
-                "location": ", ".join(locs) if locs else "Remote",
-                "is_remote": True,
-                "date_posted": j.get("pubDate"),
-                "salary": _salary(j.get("minSalary"), j.get("maxSalary"), j.get("currency"), j.get("salaryPeriod")),
-                "job_url": url,
-                "description": _strip_html(j.get("description")),
-            })
-        if len(out) >= limit * 3:
-            break
-    return out, {}
+    errors, next_offsets = [], {}
+    for term in terms:
+        for page in range(source_offset+1, source_offset+max_pages+1):
+            try:
+                r = await client.get("https://himalayas.app/jobs/api/search", params={"q": term, "page": page}, headers=_HEADERS)
+                r.raise_for_status()
+                data = r.json()
+                batch = data.get("jobs", [])
+            except (httpx.HTTPError, ValueError) as exc:
+                errors.append(f"{term}: {safe_error(exc)}")
+                break
+            if not batch:
+                next_offsets.pop(term, None)
+                break
+            added = 0
+            for j in batch:
+                url = j.get("applicationLink")
+                identity = str(j.get("guid") or url or j.get("title"))
+                if identity in seen:
+                    continue
+                seen.add(identity)
+                added += 1
+                out.append({"source": "himalayas", "title": j.get("title"), "company": j.get("companyName"),
+                    "location": ", ".join(j.get("locationRestrictions") or []) or "Remote",
+                    "is_remote": True, "date_posted": j.get("pubDate"), "job_type": j.get("employmentType"),
+                    "salary": _salary(j.get("minSalary"), j.get("maxSalary"), j.get("currency"), j.get("salaryPeriod")),
+                    "job_url": url, "source_url": j.get("guid"), "description": _strip_html(j.get("description"))})
+            next_offsets[term] = page
+            if not added:
+                errors.append(f"{term}: repeated page; pagination unverified")
+                break
+            if len(out) >= limit:
+                break
+    return out, {"errors": errors, "next_source_offsets": next_offsets,
+                 "coverage": "partial_error" if errors else "bounded_search"}
 
 
 async def fetch_remotive(
@@ -702,18 +733,22 @@ async def fetch_remoteok(
 
 
 async def fetch_arbeitnow(
-    client: httpx.AsyncClient, terms: list[str], location: str | None, limit: int, days: int, **_: Any,
+    client: httpx.AsyncClient, terms: list[str], location: str | None, limit: int, days: int,
+    max_pages: int = 5, source_offset: int = 0, **_: Any,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Arbeitnow — second-best DE coverage after Arbeitsagentur. Paginated for real recall."""
     out: list[dict[str, Any]] = []
     seen: set[str] = set()
-    for page in range(1, 6):
+    errors, next_offset = [], None
+    for page in range(source_offset+1, source_offset+max_pages+1):
         try:
             r = await client.get("https://www.arbeitnow.com/api/job-board-api",
                                  params={"page": page}, headers=_HEADERS)
             r.raise_for_status()
-            data = r.json().get("data", [])
-        except (httpx.HTTPError, ValueError):
+            payload = r.json()
+            data = payload.get("data", [])
+        except (httpx.HTTPError, ValueError) as exc:
+            errors.append(safe_error(exc))
             break
         if not data:
             break
@@ -733,7 +768,11 @@ async def fetch_arbeitnow(
                 "job_url": url,
                 "description": _strip_html(j.get("description")),
             })
-    return out, {"scanned": len(out)}
+        next_offset = page if (payload.get("links") or {}).get("next") else None
+        if next_offset is None or len(out) >= limit:
+            break
+    return out, {"scanned": len(out), "errors": errors, "next_source_offset": next_offset,
+                 "coverage": "partial_error" if errors else ("budget_limited" if next_offset else "feed_exhausted")}
 
 
 async def fetch_jobicy(
@@ -749,8 +788,8 @@ async def fetch_jobicy(
         r = await client.get("https://jobicy.com/api/v2/remote-jobs", params=params, headers=_HEADERS)
         r.raise_for_status()
         payload = r.json()
-    except (httpx.HTTPError, ValueError):
-        return [], {"scanned": 0}
+    except (httpx.HTTPError, ValueError) as exc:
+        return [], {"scanned": 0, "errors": [safe_error(exc)], "coverage": "error"}
     out = [{
         "source": "jobicy",
         "title": j.get("jobTitle"),
@@ -760,9 +799,9 @@ async def fetch_jobicy(
         "date_posted": j.get("pubDate"),
         "salary": _salary(j.get("annualSalaryMin"), j.get("annualSalaryMax"), j.get("salaryCurrency"), "year"),
         "job_url": j.get("url"),
-        "description": _strip_html(j.get("jobExcerpt") or j.get("jobDescription")),
+        "description": _strip_html(j.get("jobDescription") or j.get("jobExcerpt")),
     } for j in payload.get("jobs", [])]
-    return out, {"scanned": len(out)}
+    return out, {"scanned": len(out), "coverage": "latest_100_only", "exhaustive": False}
 
 
 async def fetch_hackernews(
@@ -805,9 +844,6 @@ async def fetch_weworkremotely(
     client: httpx.AsyncClient, terms: list[str], location: str | None, limit: int, days: int, **_: Any,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     feeds = [
-        "https://weworkremotely.com/categories/remote-programming-jobs.rss",
-        "https://weworkremotely.com/categories/remote-customer-support-jobs.rss",
-        "https://weworkremotely.com/categories/remote-devops-sysadmin-jobs.rss",
         "https://weworkremotely.com/remote-jobs.rss",
     ]
 
@@ -817,11 +853,13 @@ async def fetch_weworkremotely(
 
     out: list[dict[str, Any]] = []
     seen: set[str] = set()
+    errors = []
     for feed in feeds:
         try:
             r = await client.get(feed, headers=_HEADERS)
             r.raise_for_status()
-        except httpx.HTTPError:
+        except httpx.HTTPError as exc:
+            errors.append(safe_error(exc))
             continue
         for block in re.findall(r"<item>(.*?)</item>", r.text, re.S):
             title = _tag(block, "title") or ""
@@ -841,20 +879,24 @@ async def fetch_weworkremotely(
                 "job_url": link,
                 "description": _strip_html(_tag(block, "description")),
             })
-    return out, {"scanned": len(out)}
+    return out, {"scanned": len(out), "errors": errors, "coverage": "rss_window", "exhaustive": False}
 
 
 async def fetch_themuse(
-    client: httpx.AsyncClient, terms: list[str], location: str | None, limit: int, days: int, **_: Any,
+    client: httpx.AsyncClient, terms: list[str], location: str | None, limit: int, days: int,
+    max_pages: int = 5, source_offset: int = 0, **_: Any,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     out: list[dict[str, Any]] = []
-    for page in range(5):
+    errors, next_offset = [], None
+    for page in range(source_offset, source_offset+max_pages):
         try:
             r = await client.get("https://www.themuse.com/api/public/jobs",
                                  params={"page": page}, headers=_HEADERS)
             r.raise_for_status()
-            results = r.json().get("results", [])
-        except (httpx.HTTPError, ValueError):
+            payload = r.json()
+            results = payload.get("results", [])
+        except (httpx.HTTPError, ValueError) as exc:
+            errors.append(safe_error(exc))
             break
         if not results:
             break
@@ -871,7 +913,11 @@ async def fetch_themuse(
                 "job_url": (j.get("refs") or {}).get("landing_page"),
                 "description": _strip_html(j.get("contents")),
             })
-    return out, {"scanned": len(out)}
+        next_offset = page+1 if page+1 < payload.get("page_count", page+2) else None
+        if next_offset is None or len(out) >= limit:
+            break
+    return out, {"scanned": len(out), "errors": errors, "next_source_offset": next_offset,
+                 "coverage": "partial_error" if errors else ("budget_limited" if next_offset else "query_exhausted")}
 
 
 _FETCHERS = {
@@ -891,27 +937,49 @@ _FETCHERS = {
 # Aggregator
 # --------------------------------------------------------------------------- #
 
-def _dedup_key(job: dict[str, Any]) -> tuple[str, str, str]:
-    """title + company + CITY.
+def _dedup_key(job: dict[str, Any]) -> tuple:
+    """Prefer canonical identity; never merge different job IDs merely for equal titles."""
+    url = job.get("job_url")
+    if url:
+        p = urlsplit(url)
+        qs = [(k, v) for k, v in parse_qsl(p.query) if not k.lower().startswith("utm_") and k.lower() not in ("ref", "source", "trk")]
+        return ("url", urlunsplit((p.scheme.lower(), p.netloc.lower(), p.path.rstrip("/"), urlencode(sorted(qs)), "")))
+    return ("text", job.get("source"), *(str(job.get(k) or "").strip().lower() for k in ("title", "company", "location")))
 
-    The city matters: a chain advertises the identical title+company in 30 towns, and those
-    are 30 genuinely different jobs — collapsing them cost ~45 % of an Arbeitsagentur pull.
-    Only the first location component is used ('Berlin, Berlin, Deutschland' -> 'berlin'), so
-    the same posting arriving from two sources with differently formatted locations still
-    dedups.
-    """
-    title = re.sub(r"\W+", " ", (job.get("title") or "").lower()).strip()[:70]
-    company = re.sub(r"\W+", " ", (job.get("company") or "").lower()).strip()[:40]
-    loc = (job.get("location") or "").split(",")[0]
-    city = re.sub(r"\W+", " ", loc.lower()).strip()[:30]
-    return (title, company, city)
+
+def merge_jobs(jobs):
+    merged, index, duplicates = [], {}, 0
+    for job in jobs:
+        key = _dedup_key(job)
+        if key not in index:
+            job = dict(job)
+            job["sources"] = list(dict.fromkeys([*(job.get("sources") or []), job.get("source")]))
+            merged.append(job)
+            index[key] = job
+            continue
+        duplicates += 1
+        old = index[key]
+        old["sources"] = list(dict.fromkeys([*old["sources"], *(job.get("sources") or []), job.get("source")]))
+        for k, v in job.items():
+            if k == "description" and len(v or "") > len(old.get(k) or ""):
+                old[k] = v
+            elif old.get(k) is None and v is not None:
+                old[k] = v
+    return merged, duplicates
+
+
+def safe_error(exc):
+    if isinstance(exc, httpx.HTTPStatusError):
+        return f"HTTP {exc.response.status_code}"
+    return type(exc).__name__
 
 
 async def fetch_sources(
     sources: list[str], term: str, location: str | None = None,
     remote_only: bool = False, limit_per_source: int = 100, days: int = 0,
     dach_only: bool = False, extra_terms: list[str] | None = None,
-    expand_query: bool = True, fetch_details: bool = True,
+    expand_query: bool = False, fetch_details: bool = False,
+    max_pages: int = 5, source_offset: int = 0,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Fetch every named source concurrently and return (jobs, meta).
 
@@ -927,14 +995,18 @@ async def fetch_sources(
     and sorts remote-looking jobs first. It never removes non-remote results — that
     checkbox is set by employers so rarely that filtering on it returns near-zero.
     """
-    sources = [s for s in sources if s in _FETCHERS]
+    if any(s not in _FETCHERS for s in sources):
+        raise ValueError("Unsupported source; see list_job_sources")
+    if not term.strip() or len(extra_terms or []) > 11:
+        raise ValueError("A query and at most 11 extra terms are required")
+    sources = list(dict.fromkeys(sources))
     terms = expand_terms(term, extra_terms, expand=expand_query)
-    meta: dict[str, Any] = {"queries_used": terms, "per_source": {}}
+    meta: dict[str, Any] = {"queries_used": terms, "per_source": {}, "remote_boost": remote_only}
 
-    async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+    async with CachedClient(timeout=_TIMEOUT, follow_redirects=True) as client:
         async def run(name: str) -> list[dict[str, Any]]:
             try:
-                kwargs: dict[str, Any] = {}
+                kwargs: dict[str, Any] = {"max_pages": max_pages, "source_offset": source_offset}
                 if name == "jobicy" and dach_only:
                     kwargs["geo"] = "germany"
                 if name == "arbeitsagentur":
@@ -952,45 +1024,32 @@ async def fetch_sources(
                 # Rank inside the source, THEN cap — so a per-source cap keeps the best
                 # matches rather than whatever the API happened to list first.
                 jobs.sort(key=lambda j: (-j["relevance"], -date_ordinal(j)))
-                kept = jobs[:limit_per_source]
+                kept = jobs  # Every fetched row is retained in the snapshot, not dropped by response size.
                 for j in kept:
                     j["remote_confidence"] = remote_confidence(j)
                     sig = remote_signals(j)
                     if sig:
                         j["remote_signals"] = sig
-                entry = {"scanned": scanned, "kept": len(kept)}
+                entry = {"scanned": scanned, "kept": len(kept), "coverage": "source_window", "exhaustive": False}
                 entry.update(src_meta)
                 if scanned > len(kept):
-                    entry["capped"] = f"{scanned - len(kept)} lowest-ranked dropped by limit_per_source={limit_per_source}"
+                    entry["explicit_filter_removed"] = scanned - len(kept)
                 meta["per_source"][name] = entry
                 return kept
             except Exception as exc:  # noqa: BLE001 — one bad source must not sink the rest
-                log.warning("source %s failed: %s", name, exc)
-                meta["per_source"][name] = {"scanned": 0, "kept": 0, "error": str(exc)[:200]}
+                log.warning("source %s failed: %s", name, safe_error(exc))
+                meta["per_source"][name] = {"scanned": 0, "kept": 0, "errors": [safe_error(exc)], "coverage": "error"}
                 return []
 
         batches = await asyncio.gather(*(run(s) for s in sources))
 
-    seen: set[tuple[str, str, str]] = set()
-    merged: list[dict[str, Any]] = []
-    duplicates = 0
-    for batch in batches:
-        for job in batch:
-            if not job.get("title"):
-                continue
-            key = _dedup_key(job)
-            if key in seen:
-                duplicates += 1
-                continue
-            seen.add(key)
-            # Sources emit dates as ISO, RFC-822 and raw unix epochs. Normalise so the caller
-            # can compare freshness across sources without parsing three formats.
-            d = _parse_date(job.get("date_posted"))
-            if d:
-                job["date_posted"] = d.isoformat()
-            merged.append(job)
+    merged, duplicates = merge_jobs([j for batch in batches for j in batch if j.get("title")])
+    for job in merged:
+        d = _parse_date(job.get("date_posted"))
+        if d:
+            job["date_posted"] = d.isoformat()
     meta["duplicates_removed"] = duplicates
-    meta["total_available"] = sum(
-        int(v.get("total_available") or 0) for v in meta["per_source"].values() if isinstance(v, dict)
-    )
+    meta["total_available"] = None  # No adapter knows the unique whole-market total.
+    meta["source_offset_unit"] = "pages for paginated APIs; unsupported for window feeds"
+    meta["date_filter"] = "AA upstream only; other source dates returned unfiltered" if days else "none"
     return merged, meta

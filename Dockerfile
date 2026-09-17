@@ -6,16 +6,18 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY server.py sources.py ./
+COPY server.py sources.py results.py discovery.py http_cache.py middleware.py ./
 
 # Run as an unprivileged user (defense in depth — the app never needs root).
 RUN useradd --create-home --uid 10001 appuser
+RUN mkdir -p /app/data && chown appuser:appuser /app/data
 USER appuser
 
 # Cloud/Cowork defaults. HOST/PORT are usually overridden by the platform ($PORT).
 ENV MCP_TRANSPORT=http \
     HOST=0.0.0.0 \
-    PORT=8000
+    PORT=8000 \
+    RESULT_DB=/app/data/results.sqlite
 
 EXPOSE 8000
 

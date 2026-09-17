@@ -5,3 +5,7 @@ __pycache__/
 .env
 *.log
 .DS_Store
+*.sqlite
+*.sqlite-*
+data/
+.pytest_cache/
