@@ -5,6 +5,10 @@ import datetime
 import logging
 import os
 import threading
+import subprocess
+import sys
+import json
+from pathlib import Path
 from urllib.parse import urlsplit
 from typing import Annotated, Literal
 import pandas as pd
@@ -12,7 +16,6 @@ from pydantic import Field
 from fastmcp import FastMCP
 from fastmcp.server.auth import StaticTokenVerifier
 from starlette.responses import PlainTextResponse
-from jobspy import scrape_jobs
 from results import ResultStore, encode
 from browser_handoff import make_tasks, summary, INSTRUCTIONS, register_browser_tools
 from sources import (API_SOURCES, REMOTE_SOURCES, SOURCE_INFO, fetch_sources, _aa_fetch_details,
@@ -75,7 +78,12 @@ def _run_scrape(**kwargs):
     if not _JOBSPY_LOCK.acquire(timeout=2):
         raise RuntimeError("Scraper busy; retry later.")
     try:
-        return scrape_jobs(**kwargs)
+        completed = subprocess.run([sys.executable,str(Path(__file__).with_name("jobspy_worker.py"))],
+            input=json.dumps(kwargs),capture_output=True,text=True,encoding="utf-8",
+            timeout=max(5,min(120,int(os.getenv("JOBSPY_TIMEOUT_SECONDS","40")))))
+        if completed.returncode:
+            raise RuntimeError("Scraper process failed; browser fallback required")
+        return pd.DataFrame(json.loads(completed.stdout))
     finally:
         _JOBSPY_LOCK.release()
 

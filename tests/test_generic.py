@@ -3,6 +3,8 @@ import unittest
 from unittest.mock import AsyncMock, patch
 import server
 import sources
+import subprocess
+from types import SimpleNamespace
 
 class GenericTests(unittest.IsolatedAsyncioTestCase):
     async def test_any_occupation_is_forwarded_unchanged(self):
@@ -51,5 +53,20 @@ class GenericTests(unittest.IsolatedAsyncioTestCase):
     def test_catalog_matches_actual_default(self):
         catalog=json.loads(server.list_job_sources())
         self.assertEqual(catalog["defaults"]["germany"],["arbeitsagentur","arbeitnow",*server.GERMANY_BOARDS])
+
+    def test_worker_deadline_and_result(self):
+        with patch("server.subprocess.run",return_value=SimpleNamespace(returncode=0,stdout='[{"title":"Koch"}]')) as run:
+            frame=server._run_scrape(search_term="Koch")
+        self.assertEqual(frame.iloc[0]["title"],"Koch")
+        self.assertLessEqual(run.call_args.kwargs["timeout"],120)
+        self.assertEqual(json.loads(run.call_args.kwargs["input"])["search_term"],"Koch")
+
+    async def test_timeout_generates_source_failure_and_releases_slot(self):
+        with patch("server.subprocess.run",side_effect=subprocess.TimeoutExpired("worker",40)):
+            jobs,meta=await server._jobspy_batch(["Einzelhandel"],"Germany","germany",["indeed"],2,0,False,False)
+        self.assertEqual(jobs,[])
+        self.assertEqual(meta["indeed"]["errors"],["TimeoutExpired"])
+        self.assertTrue(server._JOBSPY_LOCK.acquire(blocking=False))
+        server._JOBSPY_LOCK.release()
 
 if __name__=="__main__": unittest.main()
