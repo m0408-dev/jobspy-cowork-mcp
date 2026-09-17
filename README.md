@@ -117,3 +117,27 @@ operators configure proxies server-side. Existing callers should consume the v3 
 - https://himalayas.app/api (search uses page-based pagination)
 - https://developers.greenhouse.io/job-board.html
 - https://github.com/lever/postings-api
+# Browser handoff (v3.1)
+
+An API error or ambiguous empty result now creates a persisted browser task with
+the query, market, location and a concrete navigation/search URL. Broad
+`search_all_jobs` calls also create independent checks for LinkedIn, XING, Indeed,
+StepStone, Glassdoor and Monster. These are a minimum sweep, not an exhaustive
+registry of the world's job boards. Additional failed adapters, ATS requests,
+discovery requests and missing shortlisted descriptions also create tasks.
+
+The host assistant reads `get_browser_tasks`, uses its available browser, reads
+individual listings and their Apply flow, then sends actual observations and jobs
+through `record_browser_check`. Browser jobs join the existing snapshot with stable
+IDs and URL-based deduplication. No application is submitted. The feedback tool
+is correctly marked as a non-destructive write, not a read-only tool.
+
+`partial`, `blocked` and `login_required` remain pending. The host is instructed to
+try another available browser, indexed search and public employer pages, without
+bypassing access controls. Evidence is explicitly **client-reported**; the server
+cannot itself operate or attest another MCP server's browser. A host without a
+browser must report that missing capability, not claim a check succeeded.
+`checked` means the documented browser-check scope, never exhaustive market coverage.
+
+Task pages and feedback are bounded; search replies carry only compact handoff
+counts. Germany stays the default, international adapters remain explicit opt-in.

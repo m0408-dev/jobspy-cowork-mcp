@@ -58,7 +58,8 @@ def register_tools(mcp, snapshot, read):
         try:
             jobs = await employer_jobs(provider, employer, region)
         except Exception as exc:
-            return encode({"error": safe_error(exc), "provider": provider, "employer": employer, "verified": False})
+            return snapshot([], {"per_source":{provider:{"error":safe_error(exc)}},
+                "provider":provider,"employer":employer,"queries_used":[employer+" "+search_term]})
         for job in jobs:
             job["relevance"] = relevance(job, [search_term])
         return snapshot(jobs, {"employer": employer, "provider": provider, "coverage": "public_board_response", "application_form_checked": False})
@@ -78,4 +79,6 @@ def register_tools(mcp, snapshot, read):
             links = [j for j in links if (j["url"] or "").startswith("https://")]
             return encode({"market": market, "verified": False, "links": links[:limit], "coverage": "search_engine_sample"})
         except Exception as exc:
-            return encode({"error": safe_error(exc), "links": [], "coverage": "unavailable; use browser search"})
+            return snapshot([], {"per_source":{"discovery":{"error":safe_error(exc)}},
+                "queries_used":[query+suffix],"market":market,
+                "coverage":"discovery_failed; execute browser handoff"})

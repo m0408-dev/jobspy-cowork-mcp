@@ -942,6 +942,12 @@ def _dedup_key(job: dict[str, Any]) -> tuple:
     url = job.get("job_url")
     if url:
         p = urlsplit(url)
+        if p.hostname in ("www.arbeitsagentur.de", "arbeitsagentur.de"):
+            aa_id = dict(parse_qsl(p.query)).get("id")
+            if not aa_id and p.path.startswith("/jobsuche/jobdetail/"):
+                aa_id = p.path.rsplit("/", 1)[-1]
+            if aa_id:
+                return ("arbeitsagentur", aa_id)
         qs = [(k, v) for k, v in parse_qsl(p.query) if not k.lower().startswith("utm_") and k.lower() not in ("ref", "source", "trk")]
         return ("url", urlunsplit((p.scheme.lower(), p.netloc.lower(), p.path.rstrip("/"), urlencode(sorted(qs)), "")))
     return ("text", job.get("source"), *(str(job.get(k) or "").strip().lower() for k in ("title", "company", "location")))

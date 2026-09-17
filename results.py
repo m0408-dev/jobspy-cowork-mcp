@@ -58,18 +58,25 @@ class ResultStore:
             row = db.execute("SELECT created,body FROM snapshots WHERE id=?", (result_id,)).fetchone()
         if not row or row[0] < time.time() - self.ttl:
             raise ValueError("Unknown or expired result_id; run a new search.")
-        return json.loads(row[1])
+        data = json.loads(row[1])
+        data["expires_in_seconds"] = max(0, int(row[0]+self.ttl-time.time()))
+        return data
 
     def update_jobs(self, result_id, updates):
+        def apply(data):
+            for job in data["jobs"]:
+                if job["id"] in updates:
+                    job.update(updates[job["id"]])
+        self.mutate(result_id, apply)
+
+    def mutate(self, result_id, operation):
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT created,body FROM snapshots WHERE id=?", (result_id,)).fetchone()
             if not row or row[0] < time.time()-self.ttl:
                 raise ValueError("Unknown or expired result_id")
             data = json.loads(row[1])
-            for job in data["jobs"]:
-                if job["id"] in updates:
-                    job.update(updates[job["id"]])
+            operation(data)
             body = encode(data)
             used = db.execute("SELECT COALESCE(SUM(length(CAST(body AS BLOB))),0) FROM snapshots").fetchone()[0]
             if used - len(row[1].encode()) + len(body.encode()) > self.max_bytes:
@@ -82,9 +89,12 @@ class ResultStore:
         data = self.load(result_id)
         jobs = data["jobs"]
         payload = {"result_id": result_id, "total_fetched": len(jobs), "offset": offset,
-                   "expires_in_seconds": self.ttl, "jobs": []}
+                   "expires_in_seconds": data["expires_in_seconds"], "jobs": []}
         if offset == 0:
-            payload["coverage"] = data["meta"]
+            payload["coverage"] = {k:v for k,v in data["meta"].items() if not k.startswith("_")}
+            if len(encode(payload["coverage"])) > max_chars // 3:
+                payload["coverage"] = {"metadata_truncated":True,
+                    "browser_handoff":data["meta"].get("browser_handoff"),"exhaustive":False}
         for job in jobs[offset:offset + page_size]:
             item = {k: v for k, v in job.items() if v is not None and not k.startswith("_") and k != "description"}
             if detailed and job.get("description"):
@@ -116,4 +126,5 @@ class ResultStore:
                         "description": desc[text_offset:text_offset + text_chars],
                         "description_chars": len(desc),
                         "next_text_offset": text_offset + text_chars if len(desc) > text_offset + text_chars else None})
-        return encode({"result_id": result_id, "jobs": out})
+        return encode({"result_id": result_id, "jobs": out,
+            "browser_handoff":data["meta"].get("browser_handoff")})

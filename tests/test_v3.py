@@ -149,8 +149,9 @@ class AsyncTests(unittest.IsolatedAsyncioTestCase):
     async def test_protocol_tools_and_call(self):
         async with Client(server.mcp) as client:
             tools = await client.list_tools()
-            self.assertEqual(len(tools),9)
-            self.assertTrue(all(t.annotations.readOnlyHint for t in tools))
+            self.assertEqual(len(tools),11)
+            self.assertTrue(all(t.annotations.readOnlyHint for t in tools if t.name!='record_browser_check'))
+            self.assertFalse(next(t for t in tools if t.name=='record_browser_check').annotations.readOnlyHint)
             result = await client.call_tool("list_job_sources",{})
             self.assertFalse(result.is_error)
 

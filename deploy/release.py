@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 
 def docker(*args, capture=True):
-    result = subprocess.run(["docker", *args], text=True, capture_output=capture)
+    result = subprocess.run(["docker", *args], text=True, capture_output=capture, timeout=180)
     if result.returncode:
         # Docker errors may contain secret environment values; do not echo them.
         raise RuntimeError(f"Docker {args[0]} failed (exit {result.returncode}); inspect server logs privately")
@@ -35,11 +35,11 @@ async def main():
     url='http://127.0.0.1:8000'+os.environ.get('MCP_HTTP_PATH','/mcp/')
     async with Client(url, auth=os.environ.get('MCP_AUTH_TOKEN') or None) as c:
         ts=await c.list_tools()
-        assert len(ts)==9
+        assert len(ts)==11
         r=await c.call_tool('list_job_sources',{})
         d=json.loads(r.content[0].text)
-        assert d['version']=='3.0.0'
-        print('MCP protocol OK: 9 tools, v3.0.0')
+        assert d['version']=='3.1.0'
+        print('MCP protocol OK: 11 tools, v3.1.0')
 asyncio.run(main())'''
 
 def restore(backup):

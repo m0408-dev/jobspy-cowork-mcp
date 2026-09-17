@@ -6,7 +6,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY server.py sources.py results.py discovery.py http_cache.py middleware.py ./
+COPY server.py sources.py results.py discovery.py http_cache.py middleware.py browser_handoff.py ./
 
 # Run as an unprivileged user (defense in depth — the app never needs root).
 RUN useradd --create-home --uid 10001 appuser
