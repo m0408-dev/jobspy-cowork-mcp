@@ -526,7 +526,7 @@
     {
       "id": "source_34",
       "name": "golem.de",
-      "url": "https://golem.de/karriere/",
+      "url": "https://jobs.golem.de/",
       "segment": "de",
       "category": "Deutschland – allgemein und Fachbörsen",
       "integration": "not_implemented",

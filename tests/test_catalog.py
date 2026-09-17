@@ -50,6 +50,7 @@ class CatalogTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(len(ids),143)
                     self.assertEqual(len(set(ids)),143)
                     await call('record_browser_check',result_id=rid,task_id='0',outcome='checked_no_results',
+                        inspection_stage='search_results',issue='none',
                         browser='test fixture',visited_urls=['https://www.arbeitsagentur.de/jobsuche/'],
                         evidence='Test fixture: queried the source and inspected the empty result page.')
                     pending=await call('get_browser_tasks',result_id=rid,pending_only=True)

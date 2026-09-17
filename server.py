@@ -159,7 +159,7 @@ def list_job_sources(market: Market = "germany", offset: Annotated[int, Field(ge
     """Available adapters, market defaults and explicit browser gaps. No network calls."""
     rows = select_sources(market)
     end = min(offset+page_size, len(rows))
-    return encode({"version": "3.3.0", "defaults": {"germany": ["arbeitsagentur", "arbeitnow", *GERMANY_BOARDS], "international": REMOTE_SOURCES},
+    return encode({"version": "3.4.0", "defaults": {"germany": ["arbeitsagentur", "arbeitnow", *GERMANY_BOARDS], "international": REMOTE_SOURCES},
         "broad_scope":"All selected catalog sources, adapters plus mandatory host-browser queue",
         "catalog_entries":len(CATALOG["sources"]), "selected_sources":len(rows), "market":market,
         "sources_page":[{k:r[k] for k in ("id","name","url","research_status")} for r in rows[offset:end]],

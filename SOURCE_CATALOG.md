@@ -50,7 +50,7 @@ Jeder Run berücksichtigt sämtliche Katalogquellen seiner ausdrücklich gewähl
 | [get-in-it.de](https://www.get-in-it.de/) | Einstiegsseite gelesen | Homepage-Prüfung ist keine erfolgreiche Stellenabfrage. |
 | [jobs.heise.de](https://jobs.heise.de/) | Einstiegsseite gelesen | Homepage-Prüfung ist keine erfolgreiche Stellenabfrage. |
 | [it-jobs.de](https://it-jobs.de/) | Einstiegsseite gelesen | Homepage-Prüfung ist keine erfolgreiche Stellenabfrage. |
-| [golem.de](https://golem.de/karriere/) | Weitere Prüfung nötig | Homepage-Prüfung ist keine erfolgreiche Stellenabfrage. |
+| [Golem Stellenmarkt](https://jobs.golem.de/) | Suchmaske im Browser erreichbar | Alter /karriere/-Link war 404; keine vollständige Stellenabfrage behauptet. |
 | [interamt.de](https://interamt.de/) | Weitere Prüfung nötig | Homepage-Prüfung ist keine erfolgreiche Stellenabfrage. |
 | [service.bund.de](https://service.bund.de/) | Weitere Prüfung nötig | Homepage-Prüfung ist keine erfolgreiche Stellenabfrage. |
 | [greenjobs.de](https://www.greenjobs.de/) | Einstiegsseite gelesen | Homepage-Prüfung ist keine erfolgreiche Stellenabfrage. |

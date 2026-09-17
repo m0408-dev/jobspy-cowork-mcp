@@ -65,6 +65,7 @@ class HandoffTests(unittest.IsolatedAsyncioTestCase):
         rid=self.snapshot()
         with self.assertRaises(Exception):
             await self.call("record_browser_check",result_id=rid,task_id="0",outcome="checked",browser="fixture",
+                inspection_stage="listing",issue="none",
                 visited_urls=["https://example.com/search"],evidence="A search page was read, but not the individual listing.",
                 jobs=[dict(title="Support",company="Example",job_url="https://example.com/jobs/1",
                     description="A sufficiently long description but not actually visited.")])
@@ -99,6 +100,7 @@ class HandoffTests(unittest.IsolatedAsyncioTestCase):
     async def test_checked_scope_closes_pending_not_global_coverage(self):
         rid=self.snapshot()
         result=await self.call("record_browser_check",result_id=rid,task_id="0",outcome="checked_no_results",
+            inspection_stage="search_results",issue="none",
             browser="test fixture",visited_urls=["https://example.com/search"],
             evidence="Search page checked; it explicitly reports zero matches for the requested query.")
         self.assertEqual(result["browser_handoff"]["pending"],0)
@@ -108,9 +110,56 @@ class HandoffTests(unittest.IsolatedAsyncioTestCase):
         rid=self.snapshot()
         with self.assertRaises(Exception):
             await self.call("record_browser_check",result_id=rid,task_id="0",outcome="checked",browser="fixture",
+                inspection_stage="listing",issue="none",
                 visited_urls=["https://example.com/jobs/1"],evidence="Listing read but the application form was not inspected.",
                 jobs=[dict(title="Support",company="Example",job_url="https://example.com/jobs/1",
                     description="A sufficiently long job description with responsibilities.",
                     application_url="https://example.com/apply",application_requirements="CV")])
+
+    async def test_homepage_and_unknown_never_complete(self):
+        for stage in ("homepage","unknown"):
+            with self.assertRaises(Exception):
+                await self.call("record_browser_check",result_id=self.snapshot(),task_id="0",outcome="checked",
+                    browser="fixture",inspection_stage=stage,issue="none",visited_urls=["https://example.com/"],
+                    evidence="Only the entry page was loaded; no query was performed.")
+
+    async def test_each_unresolved_issue_rejects_completion(self):
+        for issue in ("cookie_banner","wrong_url","dns_error","tls_error","network_error","render_incomplete",
+                      "bot_protection","login_required","eligibility_required","unknown"):
+            with self.assertRaises(Exception):
+                await self.call("record_browser_check",result_id=self.snapshot(),task_id="0",outcome="checked",
+                    browser="fixture",inspection_stage="search_results",issue=issue,visited_urls=["https://example.com/"],
+                    evidence="Search could not be verified because an access problem remains.")
+
+    async def test_unattempted_queue_does_not_retry_block(self):
+        rid=self.snapshot()
+        await self.call("record_browser_check",result_id=rid,task_id="0",outcome="blocked",issue="tls_error",
+            browser="fixture",visited_urls=["https://example.com/"],evidence="The browser reported a certificate mismatch; not bypassed.")
+        self.assertEqual((await self.call("get_browser_tasks",result_id=rid,unattempted_only=True))["tasks"],[])
+        pending=await self.call("get_browser_tasks",result_id=rid,pending_only=True)
+        self.assertEqual(pending["tasks"][0]["issue"],"tls_error")
+        self.assertEqual(pending["summary"]["pending"],1)
+
+    async def test_browser_recovers_api_failure(self):
+        rid=self.snapshot()
+        result=await self.call("record_browser_check",result_id=rid,task_id="0",outcome="checked",
+            inspection_stage="search_results",issue="api_access_denied",browser="fixture",
+            visited_urls=["https://www.arbeitsagentur.de/jobsuche/suche?was=IT"],
+            evidence="API denied the request but the browser displayed results for the requested search scope.")
+        self.assertEqual(result["browser_handoff"]["pending"],0)
+
+    def test_broad_failure_has_query_link(self):
+        tasks=make_tasks({"market":"germany","catalog_scope":"all_selected_market_sources",
+            "queries_used":["Koch"],"per_source":{"arbeitsagentur":{"error":"HTTP 403"}}})
+        aa=next(t for t in tasks if t["source"]=="arbeitsagentur")
+        self.assertIn("was=Koch",aa["direct_search_url"])
+        self.assertEqual(aa["reason"],"upstream_failed_or_ambiguous")
+
+    def test_historical_hints_are_not_live_completion(self):
+        tasks=make_tasks({"market":"worldwide","catalog_scope":"all_selected_market_sources","queries_used":["Koch"]})
+        hints=[t for t in tasks if "historical_access_hint" in t]
+        self.assertEqual(len(hints),47)
+        self.assertTrue(all(t["status"]=="pending" and not t["historical_access_hint"]["current_search_verified"] for t in hints))
+        self.assertTrue(any(t["url"]=="https://jobs.golem.de/" for t in tasks))
 
 if __name__=="__main__": unittest.main()

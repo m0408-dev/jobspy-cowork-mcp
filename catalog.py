@@ -5,6 +5,7 @@ from pathlib import Path
 from urllib.parse import urlsplit, urlencode
 
 CATALOG = json.loads(Path(__file__).with_name("source_catalog.json").read_text(encoding="utf-8"))
+ACCESS = json.loads(Path(__file__).with_name("source_access.json").read_text(encoding="utf-8"))
 MARKETS = {"germany", "international", "worldwide"}
 
 def segments(row):
@@ -35,6 +36,10 @@ def source_tasks(meta):
                 "reason":"full_catalog_browser_check", "research_status":row["research_status"],
                 "filters":{"remote_requested":bool(meta.get("remote_boost")), "days_old":meta.get("days_old",0)},
                 "status":"pending"})
+            hint = ACCESS["observations"].get(url)
+            if hint:
+                tasks[-1]["historical_access_hint"] = {"observed_on": ACCESS["checked_on"], "observation":hint,
+                    "current_search_verified":False}
     return tasks
 
 def coverage(meta):
@@ -49,6 +54,8 @@ def coverage(meta):
         entries.append({"id":row["id"], "name":row["name"], "url":row["url"],
             "status":"documented_scope_checked" if related and finished == len(related) else ("attempted_pending_browser" if attempted else "not_attempted"),
             "direct":direct.get(row["id"]), "browser_pending":len(related)-finished,
+            "browser_outcomes":dict(Counter(t["status"] for t in related)),
+            "browser_issues":dict(Counter(t.get("issue","unknown") for t in related if t.get("checked_at"))),
             "last_browser_attempt_at":max((t.get("checked_at",0) for t in related), default=0) or None,
             "direct_finished_at":meta.get("direct_attempts_finished_at") if row["id"] in direct else None})
     counts = Counter(e["status"] for e in entries)

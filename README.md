@@ -172,3 +172,10 @@ browser must report that missing capability, not claim a check succeeded.
 
 Task pages and feedback are bounded; search replies carry only compact handoff
 counts. Germany stays the default, international adapters remain explicit opt-in.
+# Access recovery (v3.4)
+
+Direct API failure never proves that the public website is inaccessible. Broad tasks retain a query-specific fallback URL and dated browser observations from `source_access.json`. Historical observations never complete a current task.
+
+Host workflow: call `get_browser_tasks(unattempted_only=true)` at offset 0, execute the returned tasks in the host's available browser, and record each attempt. Reject optional cookie banners, wait for actual results, and inspect the requested query. Then audit remaining tasks with `pending_only=true` and `get_search_coverage`. Filtered queues change after writes, so restart offset 0. Stop retrying an unchanged hard barrier; report it and use official employer/indexed alternatives without pretending the original board was checked.
+
+`record_browser_check` requires `inspection_stage=search_results|listing|application` and `issue=none|api_access_denied` for completed checks. Homepages, loading states and unresolved browser problems must remain partial/blocked. Issues distinguish cookie, URL, DNS, TLS, network, rendering, bot, login and eligibility problems. Do not bypass security warnings or confirm user eligibility. A browser is controlled by the host, not by the remote MCP; if unavailable, explicitly report incomplete coverage.

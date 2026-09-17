@@ -13,6 +13,9 @@ DOMAINS = {"arbeitsagentur": "www.arbeitsagentur.de", "linkedin": "www.linkedin.
     "glassdoor": "www.glassdoor.de", "monster": "www.monster.de"}
 SWEEP = ["linkedin", "xing", "indeed", "stepstone", "glassdoor", "monster"]
 INSTRUCTIONS = (
+    "Resolve cookie banners (prefer reject optional cookies), wait for rendered search results, and verify "
+    "the requested query. A homepage or loading spinner is not a completed search. Record inspection_stage "
+    "and issue separately from outcome. Never interpret an empty parser response as confirmed zero jobs. "
     "When browser_handoff requires use_host_browser, call get_browser_tasks and use your available browser "
     "to execute the tasks, then record_browser_check with observed evidence and jobs. An API block is not "
     "a reason to skip a source. If the board fails, try another available browser, indexed search and the "
@@ -24,6 +27,10 @@ INSTRUCTIONS = (
     "all task pages; use get_search_coverage to audit gaps. Task url is the board entry point; search the "
     "query there, with indexed_search_url as fallback, not as proof of a board search. If no browser is "
     "available, report the run incomplete. Never claim a full run while sources remain not_attempted."
+    " Process unattempted tasks before retrying blocked tasks. Do not loop indefinitely on security walls. "
+    "On TLS/DNS/404 errors verify canonical links via official navigation or indexed search; never bypass "
+    "certificate warnings or attest work eligibility. Record alternative employer discoveries as partial "
+    "if the original board query remains unverified."
 )
 
 def search_link(source, term, location, market):
@@ -52,6 +59,10 @@ def make_tasks(meta):
     if meta.get("browser_sweep") and not meta.get("catalog_scope"):
         sources.update({s:sources.get(s,"independent_browser_check") for s in SWEEP})
     tasks = source_tasks(meta)
+    for task in tasks:
+        if task["source"] in sources:
+            task["reason"] = sources[task["source"]]
+            task["direct_search_url"] = search_link(task["source"], task["query"], location, market)
     for source, reason in sources.items():
         for term in terms:
             if any(t["source"] == source and t["query"] == term for t in tasks):
@@ -94,12 +105,14 @@ def register_browser_tools(mcp, store, read):
     @mcp.tool(annotations={**read,"title":"Read host browser tasks"})
     def get_browser_tasks(result_id: str, offset: Annotated[int,Field(ge=0)]=0,
         page_size: Annotated[int,Field(ge=1,le=10)]=5,
-        pending_only: bool = False) -> str:
+        pending_only: bool = False, unattempted_only: bool = False) -> str:
         """Read browser tasks and evidence. Execute pending tasks using the host browser; no network call here."""
         tasks = store.load(result_id)["meta"].get("_browser_tasks",[])
         total_summary = summary(tasks)
         if pending_only:
             tasks = [t for t in tasks if t["status"] not in ("checked", "checked_no_results")]
+        if unattempted_only:
+            tasks = [t for t in tasks if not t.get("checked_at")]
         selected=[]
         for task in tasks[offset:offset+page_size]:
             if selected and len(encode(selected))+len(encode(task))>20000:
@@ -116,10 +129,17 @@ def register_browser_tools(mcp, store, read):
         browser: Annotated[str,Field(min_length=1,max_length=100)],
         visited_urls: Annotated[list[str],Field(min_length=1,max_length=30)],
         evidence: Annotated[str,Field(min_length=30,max_length=3000)],
-        jobs: Annotated[list[BrowserJob],Field(max_length=20)]=[]) -> str:
+        jobs: Annotated[list[BrowserJob],Field(max_length=20)]=[],
+        inspection_stage: Literal["unknown","homepage","search_results","listing","application"]="unknown",
+        issue: Literal["none","unknown","api_access_denied","cookie_banner","wrong_url","dns_error","tls_error","network_error","render_incomplete","bot_protection","login_required","eligibility_required"]="unknown") -> str:
         """Save actual host-browser observations and merge jobs into snapshot. Client-reported, not server-attested.
         checked only covers the scope described in evidence; partial/blocked remain pending. Never send applicant data.
         """
+        if outcome in ("checked","checked_no_results"):
+            if inspection_stage not in ("search_results","listing","application"):
+                raise ValueError("Completed checks require search_results, listing or application inspection; homepage/loading is partial")
+            if issue not in ("none","api_access_denied"):
+                raise ValueError("Unresolved browser issues cannot be marked checked")
         for url in visited_urls:
             validate_url(url)
         if sum(len(u) for u in visited_urls)>12000 or any(len(u)>2500 for u in visited_urls):
@@ -140,9 +160,17 @@ def register_browser_tools(mcp, store, read):
             if task is None:
                 raise ValueError("Unknown browser task")
             task.update(status=outcome, browser=browser, visited_urls=visited_urls, evidence=evidence,
-                evidence_origin="client_reported",checked_at=time.time())
+                evidence_origin="client_reported",checked_at=time.time(), inspection_stage=inspection_stage, issue=issue)
             if outcome in ("blocked","login_required","partial"):
                 task["next_action"]="Try another available browser or indexed search, then direct employer pages. Do not bypass access controls."
+                if issue == "cookie_banner":
+                    task["next_action"]="Reject optional cookies, then verify rendered query results."
+                elif issue == "render_incomplete":
+                    task["next_action"]="Wait for result rendering and inspect visible errors; loading is not zero results."
+                elif issue in ("tls_error","dns_error","wrong_url","network_error"):
+                    task["next_action"]="Verify canonical URL via official links/indexed search; never bypass TLS warnings."
+                elif issue in ("bot_protection","eligibility_required","login_required"):
+                    task["next_action"]="Record access limitation; use indexed search/direct employer alternatives without bypassing or making declarations."
             else:
                 task.pop("next_action",None)
             indexed={_dedup_key(j):j for j in data["jobs"]}
