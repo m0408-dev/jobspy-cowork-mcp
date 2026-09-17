@@ -629,7 +629,7 @@ async def fetch_arbeitsagentur(
         # Largest single-query pool among the queries fired. Reporting only the caller's own
         # term would understate it (the union of variants can exceed it), and summing would
         # double-count the overlap — so this is the honest "there is at least this much".
-        "total_available": max(totals.values()) if totals else 0,
+        "total_available": max(totals.values()) if totals else None,
         "total_for_your_term": totals.get(str(terms[0])) if terms else 0,
         "total_per_query": totals,
         "descriptions_fetched": enriched,
@@ -997,8 +997,8 @@ async def fetch_sources(
     """
     if any(s not in _FETCHERS for s in sources):
         raise ValueError("Unsupported source; see list_job_sources")
-    if not term.strip() or len(extra_terms or []) > 11:
-        raise ValueError("A query and at most 11 extra terms are required")
+    if not term.strip() or len(term) > 200 or len(extra_terms or []) > 11 or any(not t.strip() or len(t) > 200 for t in extra_terms or []):
+        raise ValueError("Queries must be 1-200 characters, with at most 11 extra terms")
     sources = list(dict.fromkeys(sources))
     terms = expand_terms(term, extra_terms, expand=expand_query)
     meta: dict[str, Any] = {"queries_used": terms, "per_source": {}, "remote_boost": remote_only}
@@ -1016,7 +1016,7 @@ async def fetch_sources(
                     client, terms, location, limit_per_source, days, **kwargs
                 )
                 scanned = len(jobs)
-                jobs = [j for j in jobs if looks_like_job(j)]
+                jobs = [j for j in jobs if j.get("title")]
                 if dach_only and name not in ("arbeitsagentur", "arbeitnow"):
                     jobs = [j for j in jobs if dach_ok(j.get("location"))]
                 for j in jobs:
@@ -1032,6 +1032,7 @@ async def fetch_sources(
                         j["remote_signals"] = sig
                 entry = {"scanned": scanned, "kept": len(kept), "coverage": "source_window", "exhaustive": False}
                 entry.update(src_meta)
+                entry["status"] = ("partial_error" if kept else "error") if entry.get("errors") else ("results_received" if kept else "empty_unverified")
                 if scanned > len(kept):
                     entry["explicit_filter_removed"] = scanned - len(kept)
                 meta["per_source"][name] = entry

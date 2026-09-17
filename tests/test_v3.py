@@ -117,6 +117,13 @@ class AsyncTests(unittest.IsolatedAsyncioTestCase):
             await c.get("https://test.example/api")
             await c.get("https://test.example/api")
         self.assertEqual(len(calls),1)
+    async def test_blocked_http_is_cached_without_hiding_status(self):
+        _cache.clear(); calls=[]
+        def reply(r): calls.append(r); return httpx.Response(403)
+        async with CachedClient(transport=httpx.MockTransport(reply)) as c:
+            self.assertEqual((await c.get("https://test.example/blocked")).status_code,403)
+            self.assertEqual((await c.get("https://test.example/blocked")).status_code,403)
+        self.assertEqual(len(calls),1)
     async def test_defaults_no_international_calls(self):
         mock = AsyncMock(return_value=([],{"queries_used":["support"],"per_source":{}}))
         with patch("server.fetch_sources",mock), patch("server._snapshot",return_value="ok"):
