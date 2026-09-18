@@ -38,7 +38,7 @@ async def main():
         assert len(ts)==12
         r=await c.call_tool('list_job_sources',{})
         d=json.loads(r.content[0].text)
-        assert d['version']=='3.5.0'
+        assert d['version']=='3.5.1'
         assert d['catalog_entries']==144
         from results import ResultStore
         from browser_handoff import make_tasks
@@ -60,7 +60,7 @@ async def main():
         finally:
             with store.connect() as db:
                 db.execute('DELETE FROM snapshots WHERE id=?',(rid,))
-        print('MCP protocol OK: 12 tools, v3.5.0, full catalog loaded')
+        print('MCP protocol OK: 12 tools, v3.5.1, full catalog loaded')
         print('HTTP paging + Unicode roundtrip + incomplete coverage checks OK')
 asyncio.run(main())'''
 

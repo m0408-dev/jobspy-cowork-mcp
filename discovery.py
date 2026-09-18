@@ -1,5 +1,6 @@
 """Explicit employer adapters and on-demand discovery; never crawl arbitrary/internal URLs."""
 import re
+import asyncio
 import xml.etree.ElementTree as ET
 from typing import Annotated, Literal
 from pydantic import Field
@@ -58,11 +59,11 @@ def register_tools(mcp, snapshot, read):
         try:
             jobs = await employer_jobs(provider, employer, region)
         except Exception as exc:
-            return snapshot([], {"per_source":{provider:{"error":safe_error(exc)}},
+            return await asyncio.to_thread(snapshot, [], {"per_source":{provider:{"error":safe_error(exc)}},
                 "provider":provider,"employer":employer,"queries_used":[employer+" "+search_term]})
         for job in jobs:
             job["relevance"] = relevance(job, [search_term])
-        return snapshot(jobs, {"employer": employer, "provider": provider, "coverage": "public_board_response", "application_form_checked": False})
+        return await asyncio.to_thread(snapshot, jobs, {"employer": employer, "provider": provider, "coverage": "public_board_response", "application_form_checked": False})
 
     @mcp.tool(annotations={**read, "title": "Discover additional job sources"})
     async def discover_job_sources(query: Annotated[str, Field(min_length=1, max_length=200)],
@@ -79,6 +80,6 @@ def register_tools(mcp, snapshot, read):
             links = [j for j in links if (j["url"] or "").startswith("https://")]
             return encode({"market": market, "verified": False, "links": links[:limit], "coverage": "search_engine_sample"})
         except Exception as exc:
-            return snapshot([], {"per_source":{"discovery":{"error":safe_error(exc)}},
+            return await asyncio.to_thread(snapshot, [], {"per_source":{"discovery":{"error":safe_error(exc)}},
                 "queries_used":[query+suffix],"market":market,
                 "coverage":"discovery_failed; execute browser handoff"})

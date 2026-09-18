@@ -180,7 +180,7 @@ Host workflow: call `get_browser_tasks(unattempted_only=true)` at offset 0, exec
 
 `record_browser_check` requires `inspection_stage=search_results|listing|application` and `issue=none|api_access_denied` for completed checks. Homepages, loading states and unresolved browser problems must remain partial/blocked. Issues distinguish cookie, URL, DNS, TLS, network, rendering, bot, login and eligibility problems. Do not bypass security warnings or confirm user eligibility. A browser is controlled by the host, not by the remote MCP; if unavailable, explicitly report incomplete coverage.
 
-## Search correctness repair (v3.5)
+## Search correctness repair (v3.5.1)
 
 - Arbeitsagentur search uses the currently working `/pc/v6/jobs` endpoint and maps
   `ergebnisliste`, reference numbers, companies, multiple locations, publication dates,
@@ -207,6 +207,8 @@ Host workflow: call `get_browser_tasks(unattempted_only=true)` at offset 0, exec
   split on protocol line endings, not Python `str.splitlines()` (which also splits
   inside valid JSON strings). A diagnostic-client bug caused the September 18 page
   parse failure; it was not loss of server-stored results.
+- Search snapshot processing/storage runs off the HTTP event loop so large result
+  serialization does not directly block health requests.
 
 Known external limits remain: upstream login requirements, bot/rate limits, finite
 feed windows and client browser availability. Version 3.5 does not add scraping

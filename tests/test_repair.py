@@ -2,6 +2,7 @@
 import datetime
 import json
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -15,6 +16,20 @@ from results import ResultStore, encode
 
 
 class RepairTests(unittest.IsolatedAsyncioTestCase):
+    async def test_snapshot_work_off_event_loop(self):
+        loop_thread=threading.get_ident()
+        seen=[]
+        def snapshot(*args):
+            seen.append(threading.get_ident())
+            return 'ok'
+        api=AsyncMock(return_value=([],{'queries_used':['a'],'per_source':{}}))
+        with patch('server.fetch_sources',api),patch('server._snapshot',snapshot),patch('server._jobspy_batch',AsyncMock(return_value=([],{}))):
+            await server.search_all_jobs('a',include_jobspy=False)
+            await server.search_german_jobs('a')
+            await server.search_jobs('a')
+        self.assertEqual(len(seen),3)
+        self.assertTrue(all(t!=loop_thread for t in seen))
+
     async def test_jobspy_depth_and_breadth(self):
         calls = []
         def scrape(**kw):

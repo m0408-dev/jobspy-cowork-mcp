@@ -169,7 +169,7 @@ def list_job_sources(market: Market = "germany", offset: Annotated[int, Field(ge
     """Available adapters, market defaults and explicit browser gaps. No network calls."""
     rows = select_sources(market)
     end = min(offset+page_size, len(rows))
-    return encode({"version": "3.5.0", "defaults": {"germany": ["arbeitsagentur", "arbeitnow", *GERMANY_BOARDS], "international": REMOTE_SOURCES},
+    return encode({"version": "3.5.1", "defaults": {"germany": ["arbeitsagentur", "arbeitnow", *GERMANY_BOARDS], "international": REMOTE_SOURCES},
         "broad_scope":"All selected catalog sources, adapters plus mandatory host-browser queue",
         "catalog_entries":len(CATALOG["sources"]), "selected_sources":len(rows), "market":market,
         "sources_page":[{k:r[k] for k in ("id","name","url","research_status")} for r in rows[offset:end]],
@@ -268,7 +268,7 @@ async def search_jobs(search_term: Annotated[str, Field(min_length=1, max_length
     """JobSpy boards. location/country select market, not language. Remote filter is not verification; zero can mean blocked."""
     jobs, meta = await _jobspy_batch([search_term], location, country_indeed, list(dict.fromkeys(site_name)),
         results_wanted, hours_old, is_remote, linkedin_fetch_description, offset, job_type, distance, google_search_term)
-    return _snapshot(jobs, {"per_source": meta, "queries_used": [search_term],"search_location":location,
+    return await asyncio.to_thread(_snapshot, jobs, {"per_source": meta, "queries_used": [search_term],"search_location":location,
         "market":"germany" if country_indeed.lower()=="germany" else "international"}, "detailed" if include_description else "concise")
 
 @mcp.tool(annotations={**READ, "title": "Search by market"})
@@ -311,7 +311,7 @@ async def search_all_jobs(search_term: Annotated[str, Field(min_length=1, max_le
         jobs.extend(more)
         meta["per_source"].update(board_meta)
     meta["direct_attempts_finished_at"] = time.time()
-    return _snapshot(jobs, meta, response_format, page_size)
+    return await asyncio.to_thread(_snapshot, jobs, meta, response_format, page_size)
 
 @mcp.tool(annotations={**READ, "title": "Search German federal database"})
 async def search_german_jobs(search_term: str, location: str = "Germany", search_terms: list[str] | None = None,
@@ -323,7 +323,7 @@ async def search_german_jobs(search_term: str, location: str = "Germany", search
     jobs, meta = await fetch_sources(["arbeitsagentur"], search_term, location, remote_only, results_wanted, days_old,
         extra_terms=search_terms, expand_query=expand_query, fetch_details=fetch_details, max_pages=max_pages, source_offset=source_offset)
     meta.update(search_location=location, days_old=days_old)
-    return _snapshot(jobs, meta, response_format)
+    return await asyncio.to_thread(_snapshot, jobs, meta, response_format)
 
 @mcp.tool(annotations={**READ, "title": "Search remote sources"})
 async def search_remote_jobs(search_term: str, results_per_source: Annotated[int, Field(ge=1, le=1000)] = 100,
