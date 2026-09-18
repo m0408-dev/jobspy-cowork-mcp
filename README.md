@@ -179,3 +179,40 @@ Direct API failure never proves that the public website is inaccessible. Broad t
 Host workflow: call `get_browser_tasks(unattempted_only=true)` at offset 0, execute the returned tasks in the host's available browser, and record each attempt. Reject optional cookie banners, wait for actual results, and inspect the requested query. Then audit remaining tasks with `pending_only=true` and `get_search_coverage`. Filtered queues change after writes, so restart offset 0. Stop retrying an unchanged hard barrier; report it and use official employer/indexed alternatives without pretending the original board was checked.
 
 `record_browser_check` requires `inspection_stage=search_results|listing|application` and `issue=none|api_access_denied` for completed checks. Homepages, loading states and unresolved browser problems must remain partial/blocked. Issues distinguish cookie, URL, DNS, TLS, network, rendering, bot, login and eligibility problems. Do not bypass security warnings or confirm user eligibility. A browser is controlled by the host, not by the remote MCP; if unavailable, explicitly report incomplete coverage.
+
+## Search correctness repair (v3.5)
+
+- Arbeitsagentur search uses the currently working `/pc/v6/jobs` endpoint and maps
+  `ergebnisliste`, reference numbers, companies, multiple locations, publication dates,
+  full-time and raw home-office policy. Home-office availability is not full-remote proof.
+  Unknown response schemas raise an error, never a false empty success.
+- Broad JobSpy searches now page beyond 100 records. `results_per_source` is the
+  target per board/query, `max_pages` is the page ceiling per query, and
+  `JOBSPY_SITE_BUDGET_SECONDS` (default 60, clamped 5–180) bounds total time per board.
+  Queries run breadth-first. Per-query statuses/cursors expose time limits, deferred
+  queries and repeated pages. Resume using `search_jobs` with one site, term and offset.
+  Partial/empty windows are never a claim of market exhaustion.
+- `remote_only` is forwarded to JobSpy's upstream remote filter. Other feeds retain
+  ranking semantics. No generic scraper can attest 100% remote from a board badge.
+  Indeed cannot combine its upstream date and remote filters; that conflict is recorded.
+  Snapshots label known old, recent, future and unknown dates without discarding them.
+- Himalayas repetition checks are per query; overlap between synonyms no longer
+  prevents reaching later pages. Requests with a recency preference sort by recent.
+- Every saved page carries compact incomplete-search status and unresolved source
+  counts. Browser tasks are breadth-first across the entire selected catalog; no
+  source/query pair is removed. LinkedIn/Indeed entry links carry requested filters.
+  A queue is not browser execution: the host must perform and record those checks.
+- HTTP uses JSON responses supported by Streamable HTTP. Unicode line separators
+  are escaped for compatibility with simplistic clients. Correct SSE clients must
+  split on protocol line endings, not Python `str.splitlines()` (which also splits
+  inside valid JSON strings). A diagnostic-client bug caused the September 18 page
+  parse failure; it was not loss of server-stored results.
+
+Known external limits remain: upstream login requirements, bot/rate limits, finite
+feed windows and client browser availability. Version 3.5 does not add scraping
+adapters for all catalog entries or make protected boards publicly accessible.
+The caller must report incomplete coverage while browser tasks remain unresolved.
+
+Protocol and source references: [Streamable HTTP](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports),
+[AA community-maintained schema](https://github.com/bundesAPI/jobsuche-api),
+[Himalayas API](https://himalayas.app/api), [JobSpy limits](https://github.com/speedyapply/JobSpy).

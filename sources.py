@@ -341,7 +341,7 @@ def _salary(lo: Any, hi: Any, cur: Any = None, period: str | None = None) -> str
 # Source clients — each returns list[normalised job dict], UNFILTERED
 # --------------------------------------------------------------------------- #
 
-_AA_BASE = "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/app/jobs"
+_AA_BASE = "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v6/jobs"
 _AA_DETAIL = "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/jobdetails/"
 _AA_HEADERS = {**_HEADERS, "X-API-Key": "jobboerse-jobsuche"}
 _AA_PAGE_SIZE = 100
@@ -354,23 +354,32 @@ _AA_DETAIL_CONCURRENCY = 8
 
 def _aa_records(data: dict[str, Any]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
-    for j in (data.get("stellenangebote") or []):
-        ort = j.get("arbeitsort") or {}
-        loc = ", ".join(p for p in (ort.get("ort"), ort.get("region"), ort.get("land")) if p) or "Deutschland"
-        title = j.get("titel") or j.get("beruf")
+    records = data.get("ergebnisliste", data.get("stellenangebote"))
+    if not isinstance(records, list):
+        raise ValueError("Unrecognized Arbeitsagentur response schema")
+    for j in records:
+        locations = [v.get("adresse", {}) for v in j.get("stellenlokationen", [])]
+        if not locations:
+            locations = [j.get("arbeitsort") or {}]
+        loc = "; ".join(", ".join(p for p in (o.get("ort"), o.get("region"), o.get("land")) if p) for o in locations).strip("; ") or "Deutschland"
+        title = j.get("stellenangebotsTitel") or j.get("titel") or j.get("hauptberuf") or j.get("beruf")
+        ref = j.get("referenznummer") or j.get("refnr")
         out.append({
             "source": "arbeitsagentur",
             "title": title,
-            "company": j.get("arbeitgeber"),
+            "company": j.get("firma") or j.get("arbeitgeber"),
             "location": loc,
-            "is_remote": looks_remote(title),
-            "date_posted": j.get("aktuelleVeroeffentlichungsdatum"),
-            "start_date": j.get("eintrittsdatum"),
+            "is_remote": bool(j.get("homeofficemoeglich")) or looks_remote(title),
+            "remote_policy_raw": j.get("homeofficetyp"),
+            "job_type": "fulltime" if j.get("arbeitszeitVollzeit") else None,
+            "date_posted": j.get("datumErsteVeroeffentlichung") or (j.get("veroeffentlichungszeitraum") or {}).get("von") or j.get("aktuelleVeroeffentlichungsdatum"),
+            "date_updated": j.get("aenderungsdatum"),
+            "start_date": (j.get("eintrittszeitraum") or {}).get("von") or j.get("eintrittsdatum"),
             "salary": None,
-            "job_url": f"https://www.arbeitsagentur.de/jobsuche/jobdetail/{j.get('refnr')}" if j.get("refnr") else None,
+            "job_url": f"https://www.arbeitsagentur.de/jobsuche/jobdetail/{ref}" if ref else None,
             "description": None,
-            "beruf": j.get("beruf"),
-            "_refnr": j.get("refnr"),
+            "beruf": j.get("hauptberuf") or j.get("beruf"),
+            "_refnr": ref,
         })
     return out
 
@@ -554,9 +563,12 @@ async def fetch_himalayas(
     seen: set[str] = set()
     errors, next_offsets = [], {}
     for term in terms:
+        # Page repetition is per query, not global deduplication across synonyms.
+        page_fingerprints = set()
+        query_received = 0
         for page in range(source_offset+1, source_offset+max_pages+1):
             try:
-                r = await client.get("https://himalayas.app/jobs/api/search", params={"q": term, "page": page}, headers=_HEADERS)
+                r = await client.get("https://himalayas.app/jobs/api/search", params={"q": term, "page": page, "sort": "recent" if days else "relevant"}, headers=_HEADERS)
                 r.raise_for_status()
                 data = r.json()
                 batch = data.get("jobs", [])
@@ -566,6 +578,12 @@ async def fetch_himalayas(
             if not batch:
                 next_offsets.pop(term, None)
                 break
+            fingerprint = tuple(sorted(str(j.get("guid") or j.get("applicationLink") or j.get("title")) for j in batch))
+            if fingerprint in page_fingerprints:
+                errors.append(f"{term}: repeated page; pagination unverified")
+                break
+            page_fingerprints.add(fingerprint)
+            query_received += len(batch)
             added = 0
             for j in batch:
                 url = j.get("applicationLink")
@@ -580,13 +598,11 @@ async def fetch_himalayas(
                     "salary": _salary(j.get("minSalary"), j.get("maxSalary"), j.get("currency"), j.get("salaryPeriod")),
                     "job_url": url, "source_url": j.get("guid"), "description": _strip_html(j.get("description"))})
             next_offsets[term] = page
-            if not added:
-                errors.append(f"{term}: repeated page; pagination unverified")
-                break
-            if len(out) >= limit:
+            if query_received >= limit:
                 break
     return out, {"errors": errors, "next_source_offsets": next_offsets,
-                 "coverage": "partial_error" if errors else "bounded_search"}
+                 "coverage": "partial_error" if errors else "bounded_search",
+                 "limit_unit": "per query; globally deduplicated; bounded by max_pages"}
 
 
 async def fetch_remotive(

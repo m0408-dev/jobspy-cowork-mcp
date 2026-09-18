@@ -12,7 +12,9 @@ from pathlib import Path
 
 
 def encode(value):
-    return json.dumps(value, ensure_ascii=False, separators=(",", ":"), default=str)
+    # Valid JSON may contain Unicode line separators. Escape them for SSE clients
+    # that incorrectly use splitlines(), without ASCII-expanding all German text.
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"), default=str).replace("\u2028", "\\u2028").replace("\u2029", "\\u2029").replace("\u0085", "\\u0085")
 
 
 class ResultStore:
@@ -93,6 +95,18 @@ class ResultStore:
             data["meta"]["catalog_coverage"] = {k:v for k,v in coverage(data["meta"]).items() if k != "entries"}
         payload = {"result_id": result_id, "total_fetched": len(jobs), "offset": offset,
                    "expires_in_seconds": data["expires_in_seconds"], "jobs": []}
+        audit = data["meta"].get("catalog_coverage")
+        handoff = data["meta"].get("browser_handoff", {})
+        tasks = data["meta"].get("_browser_tasks", [])
+        if audit or handoff:
+            payload["search_status"] = {
+                "complete": bool(audit and audit.get("all_documented_scopes_checked")),
+                "exhaustive": False,
+                "sources_not_attempted": (audit or {}).get("status_counts", {}).get("not_attempted", 0),
+                "browser_pending": sum(t.get("status") not in ("checked", "checked_no_results") for t in tasks) if tasks else handoff.get("pending", 0),
+                "next_action": "get_browser_tasks(unattempted_only=true); record observations; audit get_search_coverage",
+                "warning": "Raw candidates, not verified new/suitable jobs. Never infer no more jobs from this page."}
+        payload["pagination_note"] = "Use next_offset exactly, never offset + page_size; character budgets shorten pages."
         if offset == 0:
             payload["coverage"] = {k:v for k,v in data["meta"].items() if not k.startswith("_")}
             if len(encode(payload["coverage"])) > max_chars // 3:

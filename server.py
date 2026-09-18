@@ -23,6 +23,7 @@ from browser_handoff import make_tasks, summary, INSTRUCTIONS, register_browser_
 from sources import (API_SOURCES, REMOTE_SOURCES, SOURCE_INFO, fetch_sources, _aa_fetch_details,
                      remote_confidence, remote_signals, relevance, date_ordinal,
                      merge_jobs, german_evidence)
+from sources import _parse_date
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 TRANSPORT = os.getenv("MCP_TRANSPORT", "http").lower()
@@ -76,13 +77,13 @@ def _jobspy_to_common(rec):
                          "period": rec.get("interval"), "source": rec.get("salary_source")}
     return job
 
-def _run_scrape(**kwargs):
+def _run_scrape(_timeout=None, **kwargs):
     if not _JOBSPY_LOCK.acquire(timeout=2):
         raise RuntimeError("Scraper busy; retry later.")
     try:
         completed = subprocess.run([sys.executable,str(Path(__file__).with_name("jobspy_worker.py"))],
             input=json.dumps(kwargs),capture_output=True,text=True,encoding="utf-8",
-            timeout=max(5,min(120,int(os.getenv("JOBSPY_TIMEOUT_SECONDS","40")))))
+            timeout=_timeout or max(5,min(120,int(os.getenv("JOBSPY_TIMEOUT_SECONDS","40")))))
         if completed.returncode:
             raise RuntimeError("Scraper process failed; browser fallback required")
         return pd.DataFrame(json.loads(completed.stdout))
@@ -103,6 +104,15 @@ def _snapshot(jobs, meta, response_format="concise", page_size=30):
         job["remote_confidence"] = remote_confidence(job)
         job["remote_signals"] = remote_signals(job)
         job["german_evidence"] = german_evidence(job)
+        if meta.get("days_old"):
+            posted = _parse_date(job.get("date_posted"))
+            today = datetime.datetime.now(datetime.timezone.utc).date()
+            job["recency_status"] = ("unknown" if posted is None else "future_date_unverified" if posted > today
+                else "within_requested_window" if (today-posted).days <= meta["days_old"] else "older_than_requested")
+    if meta.get("days_old"):
+        from collections import Counter
+        meta["recency_counts"] = dict(Counter(j["recency_status"] for j in jobs))
+        meta["date_policy"] = "Known dates annotated, unknown/older retained for caller review; not all sources support upstream date filters."
     meta["duplicates_removed"] = meta.get("duplicates_removed", 0) + duplicates
     jobs.sort(key=lambda j: (-(j.get("relevance") or 0),
         -(int(j.get("remote_confidence") in ("strict", "likely")) if meta.get("remote_boost") else 0), -date_ordinal(j)))
@@ -159,7 +169,7 @@ def list_job_sources(market: Market = "germany", offset: Annotated[int, Field(ge
     """Available adapters, market defaults and explicit browser gaps. No network calls."""
     rows = select_sources(market)
     end = min(offset+page_size, len(rows))
-    return encode({"version": "3.4.0", "defaults": {"germany": ["arbeitsagentur", "arbeitnow", *GERMANY_BOARDS], "international": REMOTE_SOURCES},
+    return encode({"version": "3.5.0", "defaults": {"germany": ["arbeitsagentur", "arbeitnow", *GERMANY_BOARDS], "international": REMOTE_SOURCES},
         "broad_scope":"All selected catalog sources, adapters plus mandatory host-browser queue",
         "catalog_entries":len(CATALOG["sources"]), "selected_sources":len(rows), "market":market,
         "sources_page":[{k:r[k] for k in ("id","name","url","research_status")} for r in rows[offset:end]],
@@ -185,33 +195,65 @@ def get_search_coverage(result_id: str, offset: Annotated[int, Field(ge=0)] = 0,
     data.update(result_id=result_id, entries=page, next_offset=end if end<len(entries) else None)
     return encode(data)
 
-async def _jobspy_batch(terms, location, country, sites, limit, hours, remote, details, offset=0, job_type=None, distance=50, google_query=None):
+async def _jobspy_batch(terms, location, country, sites, limit, hours, remote, details, offset=0, job_type=None, distance=50, google_query=None, max_pages=1):
     jobs, meta = [], {}
     for site in sites:
-        entry = {"queries": [], "scanned": 0, "status": "unknown", "exhaustive": False}
-        for term in terms:
+        entry = {"queries": [], "scanned": 0, "status": "unknown", "exhaustive": False,
+                 "query_states": {t: {"next_offset": offset, "pages": 0, "received": 0,
+                                      "status": "not_attempted"} for t in terms}}
+        deadline = time.monotonic() + max(5, min(180, int(os.getenv("JOBSPY_SITE_BUDGET_SECONDS", "60"))))
+        seen_pages = {t: set() for t in terms}
+        circuit_open = False
+        # Breadth before depth: every term gets a turn before the next page.
+        for turn in range(max_pages):
+          for term in terms:
+            state = entry["query_states"][term]
+            if state["status"] in ("window_end", "repeated_page", "error") or state["received"] >= limit:
+                continue
+            if circuit_open or time.monotonic() >= deadline:
+                state["status"] = "source_error_deferred" if circuit_open else "time_budget_deferred"
+                continue
+            wanted = min(100, limit - state["received"])
             kwargs = dict(site_name=[site], search_term=term, location=location, country_indeed=country,
-                results_wanted=limit, hours_old=hours or None, is_remote=remote, job_type=job_type,
-                linkedin_fetch_description=details, offset=offset, distance=distance,
+                results_wanted=wanted, hours_old=hours or None, is_remote=remote, job_type=job_type,
+                linkedin_fetch_description=details, offset=state["next_offset"], distance=distance,
                 google_search_term=google_query or f"{term} jobs {location}", proxies=DEFAULT_PROXIES, verbose=0)
             if site == "indeed" and hours and (remote or job_type):
                 kwargs["hours_old"] = None
                 entry["date_filter_not_applied"] = "Indeed conflicts with remote/job_type"
             try:
-                df = await asyncio.to_thread(_run_scrape, **kwargs)
+                timeout = max(.1, min(deadline-time.monotonic(), max(5, min(120, int(os.getenv("JOBSPY_TIMEOUT_SECONDS", "40"))))))
+                df = await asyncio.to_thread(_run_scrape, _timeout=timeout, **kwargs)
                 batch = [] if df is None else [_jobspy_to_common(r) for r in _dataframe_to_records(df) if r.get("title")]
+                state["pages"] += 1
+                if term not in entry["queries"]:
+                    entry["queries"].append(term)
+                fingerprint = tuple(sorted(str(j.get("job_url") or (j.get("title"), j.get("company"))) for j in batch))
+                if batch and fingerprint in seen_pages[term]:
+                    state["status"] = "repeated_page"
+                    entry.setdefault("errors", []).append("RepeatedPage")
+                    continue
+                seen_pages[term].add(fingerprint)
                 for j in batch:
                     j["relevance"] = relevance(j, terms)
                 jobs.extend(batch)
                 entry["scanned"] += len(batch)
-                entry["queries"].append(term)
-                entry["status"] = "results_received" if entry["scanned"] else "empty_or_blocked"
-                if len(batch) >= limit:
-                    entry.update(limit_reached=True, next_source_offset=offset+limit)
+                state["received"] += len(batch)
+                state["next_offset"] += len(batch)
+                state["status"] = "limit_reached" if len(batch) >= wanted else "window_end"
+                if len(batch) >= wanted:
+                    entry["limit_reached"] = True
             except Exception as exc:
                 entry.setdefault("errors", []).append(type(exc).__name__)
-                entry["status"] = "partial_error" if entry["scanned"] else "error"
-                break
+                state["status"] = "error"
+                # Do not repeat a timed-out/failed process for every synonym.
+                circuit_open = True
+        entry["status"] = (("partial_error" if entry["scanned"] else "error") if entry.get("errors")
+                           else ("results_received" if entry["scanned"] else "empty_or_blocked"))
+        entry["next_source_offsets"] = {t:s["next_offset"] for t,s in entry["query_states"].items()
+                                        if s["status"] != "window_end"}
+        entry["continuation_tool"] = "search_jobs"
+        entry["continuation_note"] = "Use each query and its offset with this single site; window_end is not proof of market exhaustion."
         meta[site] = entry
     return jobs, meta
 
@@ -244,6 +286,9 @@ async def search_all_jobs(search_term: Annotated[str, Field(min_length=1, max_le
     include_jobspy=False opts out. International feeds are opt-in; international JobSpy needs explicit country/location.
     search_terms supplies caller-chosen variants; expand_query=True is no longer supported. Details are opt-in.
     max_pages bounds upstream calls; source_offset resumes retrieval. Saved next_offset pages use no network.
+    JobSpy pages up to results_per_source per query, bounded by max_pages and a per-site time budget.
+    remote_only requests upstream remote filters where supported and ranks other feeds; it does not verify full remote.
+    Every page reports unfinished catalog/browser work. A returned snapshot is not a completed broad search.
     """
     use_jobspy = include_jobspy if include_jobspy is not None else (jobspy_sites is not None or (market=="germany" and sources is None))
     boards = list(dict.fromkeys(jobspy_sites if jobspy_sites is not None else (GERMANY_BOARDS if market=="germany" else ["indeed","linkedin"])))
@@ -255,13 +300,14 @@ async def search_all_jobs(search_term: Annotated[str, Field(min_length=1, max_le
         expand_query=expand_query, fetch_details=fetch_details, max_pages=max_pages, source_offset=source_offset)
     meta.update(market=market, source_selection="explicit" if sources is not None else "market_default",
         catalog_scope="all_selected_market_sources", remote_boost=remote_only,
+        remote_policy="upstream_where_supported_and_ranking; not_verified_full_remote" if remote_only else "unrestricted",
         browser_sweep=True, search_location=location if market=="germany" or location!="Germany" else "",
         days_old=days_old,
         working_language="unverified; german_evidence is a text hint", browser_gaps=["xing", "stepstone", "monster", "application forms"])
     meta["jobspy_sources_requested"] = boards if use_jobspy else []
     if use_jobspy and boards:
         more, board_meta = await _jobspy_batch(meta["queries_used"], location, country_indeed or "germany",
-            boards, min(results_per_source, 100), days_old*24, False, fetch_details, source_offset)
+            boards, results_per_source, days_old*24, remote_only, fetch_details, source_offset, max_pages=max_pages)
         jobs.extend(more)
         meta["per_source"].update(board_meta)
     meta["direct_attempts_finished_at"] = time.time()
@@ -296,7 +342,7 @@ from discovery import register_tools
 register_tools(mcp, _snapshot, READ)
 register_browser_tools(mcp, STORE, READ)
 from middleware import RateLimit
-app = RateLimit(mcp.http_app(path=HTTP_PATH), int(os.getenv("RATE_LIMIT_PER_MIN", "40")))
+app = RateLimit(mcp.http_app(path=HTTP_PATH, json_response=True), int(os.getenv("RATE_LIMIT_PER_MIN", "40")))
 
 if __name__ == "__main__":
     if TRANSPORT == "stdio":

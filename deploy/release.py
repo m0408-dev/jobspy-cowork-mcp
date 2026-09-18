@@ -38,9 +38,30 @@ async def main():
         assert len(ts)==12
         r=await c.call_tool('list_job_sources',{})
         d=json.loads(r.content[0].text)
-        assert d['version']=='3.4.0'
+        assert d['version']=='3.5.0'
         assert d['catalog_entries']==144
-        print('MCP protocol OK: 12 tools, v3.4.0, full catalog loaded')
+        from results import ResultStore
+        from browser_handoff import make_tasks
+        store=ResultStore()
+        meta={'market':'germany','catalog_scope':'all','queries_used':['fixture']}
+        meta['_browser_tasks']=make_tasks(meta)
+        title='Transport'+chr(0x2028)+'roundtrip'
+        rid=store.save([{'title':title,'job_url':'https://example.com/'+str(i)} for i in range(130)],meta)
+        try:
+            offset=0; ids=[]
+            while offset is not None:
+                page=json.loads((await c.call_tool('get_result_page',{'result_id':rid,'offset':offset,'page_size':100})).content[0].text)
+                assert not page['search_status']['complete']
+                assert page['search_status']['sources_not_attempted']==72
+                assert all(j['title']==title for j in page['jobs'])
+                ids.extend(j['id'] for j in page['jobs'])
+                offset=page['next_offset']
+            assert len(set(ids))==130
+        finally:
+            with store.connect() as db:
+                db.execute('DELETE FROM snapshots WHERE id=?',(rid,))
+        print('MCP protocol OK: 12 tools, v3.5.0, full catalog loaded')
+        print('HTTP paging + Unicode roundtrip + incomplete coverage checks OK')
 asyncio.run(main())'''
 
 def restore(backup):

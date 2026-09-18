@@ -40,6 +40,12 @@ def source_tasks(meta):
             if hint:
                 tasks[-1]["historical_access_hint"] = {"observed_on": ACCESS["checked_on"], "observation":hint,
                     "current_search_verified":False}
+    # Give every board its first query before working through synonyms on one board.
+    # Preserve all source/query pairs while making short browser batches broad.
+    order = {term:i for i,term in enumerate(meta["queries_used"])}
+    tasks.sort(key=lambda t: order[t["query"]])
+    for i, task in enumerate(tasks):
+        task["id"] = str(i)
     return tasks
 
 def coverage(meta):

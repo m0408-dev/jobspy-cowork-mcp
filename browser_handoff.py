@@ -33,13 +33,19 @@ INSTRUCTIONS = (
     "if the original board query remains unverified."
 )
 
-def search_link(source, term, location, market):
+def search_link(source, term, location, market, remote=False, days=0):
     if source == "arbeitsagentur":
         return "https://www.arbeitsagentur.de/jobsuche/suche?" + urlencode({"was":term,"wo":location})
     if source == "linkedin":
-        return "https://www.linkedin.com/jobs/search/?" + urlencode({"keywords":term,"location":location})
+        params = {"keywords":term,"location":location}
+        if remote: params["f_WT"] = "2"
+        if days: params["f_TPR"] = f"r{days*86400}"
+        return "https://www.linkedin.com/jobs/search/?" + urlencode(params)
     if source == "indeed" and market == "germany":
-        return "https://de.indeed.com/jobs?" + urlencode({"q":term,"l":location})
+        params = {"q":term,"l":location}
+        if remote: params["sc"] = "0kf:attr(DSQF7);"
+        if days: params["fromage"] = days
+        return "https://de.indeed.com/jobs?" + urlencode(params)
     domain = DOMAINS.get(source, "")
     if market == "international":
         domain = {"indeed":"www.indeed.com","glassdoor":"www.glassdoor.com",
@@ -60,9 +66,13 @@ def make_tasks(meta):
         sources.update({s:sources.get(s,"independent_browser_check") for s in SWEEP})
     tasks = source_tasks(meta)
     for task in tasks:
+        if task["source"] in ("arbeitsagentur", "linkedin") or (task["source"] == "indeed" and market == "germany"):
+            task["url"] = search_link(task["source"], task["query"], location, market,
+                                      bool(meta.get("remote_boost")), meta.get("days_old", 0))
         if task["source"] in sources:
             task["reason"] = sources[task["source"]]
-            task["direct_search_url"] = search_link(task["source"], task["query"], location, market)
+            task["direct_search_url"] = search_link(task["source"], task["query"], location, market,
+                                                    bool(meta.get("remote_boost")), meta.get("days_old", 0))
     for source, reason in sources.items():
         for term in terms:
             if any(t["source"] == source and t["query"] == term for t in tasks):
