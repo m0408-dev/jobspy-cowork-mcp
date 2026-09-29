@@ -355,6 +355,10 @@ _AA_DETAIL_CONCURRENCY = 8
 def _aa_records(data: dict[str, Any]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     records = data.get("ergebnisliste", data.get("stellenangebote"))
+    # A numeric zero is explicit evidence of an empty response. Unknown schemas
+    # remain errors, rather than silently turning access failures into zero jobs.
+    if records is None and type(data.get("maxErgebnisse")) is int and data["maxErgebnisse"] == 0:
+        return []
     if not isinstance(records, list):
         raise ValueError("Unrecognized Arbeitsagentur response schema")
     for j in records:
@@ -462,6 +466,7 @@ async def fetch_arbeitsagentur(
     errors: list[str] = []
     next_pages: dict[str, int] = {}
     exhausted: set[str] = set()
+    failed: set[str] = set()
     calls: dict[str, int] = {}
 
     def _add(recs: list[dict[str, Any]]) -> int:
@@ -483,15 +488,16 @@ async def fetch_arbeitsagentur(
         """Page through one query until we have `want` records from it or it runs out."""
         page = next_pages.get(label, source_offset + 1)
         got_for_query = 0
-        while got_for_query < want and calls.get(label, 0) < max_pages and label not in exhausted:
+        while got_for_query < want and calls.get(label, 0) < max_pages and label not in exhausted and label not in failed:
             calls[label] = calls.get(label, 0) + 1
             try:
                 data = await _page({**query, "page": page})
+                recs = _aa_records(data)
             except (httpx.HTTPError, ValueError) as exc:
                 errors.append(f"{label}: page {page}: {safe_error(exc)}")
-                exhausted.add(label)
+                failed.add(label)
+                next_pages[label] = page
                 return
-            recs = _aa_records(data)
             if label not in totals:
                 # keyed by label, not by `was`: the arbeitszeit=ho leg reuses the same term
                 # and would otherwise overwrite the real total with its near-zero count.
@@ -547,6 +553,7 @@ async def fetch_arbeitsagentur(
         "scanned_before_cap": scanned,
         "errors": errors,
         "pages_requested": calls,
+        "failed_queries": sorted(failed),
         "next_source_offsets": {k: v-1 for k, v in next_pages.items() if k not in exhausted},
         "coverage": "partial_error" if errors else ("query_exhausted" if len(exhausted) == len(terms) else "budget_limited"),
         "description_requests": min(limit, len(results)) if fetch_details else 0,

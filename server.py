@@ -86,7 +86,12 @@ def _run_scrape(_timeout=None, **kwargs):
             timeout=_timeout or max(5,min(120,int(os.getenv("JOBSPY_TIMEOUT_SECONDS","40")))))
         if completed.returncode:
             raise RuntimeError("Scraper process failed; browser fallback required")
-        return pd.DataFrame(json.loads(completed.stdout))
+        data = json.loads(completed.stdout)
+        if isinstance(data, dict):
+            frame = pd.DataFrame(data['jobs'])
+            frame.attrs['upstream'] = data['upstream']
+            return frame
+        return pd.DataFrame(data)
     finally:
         _JOBSPY_LOCK.release()
 
@@ -169,7 +174,7 @@ def list_job_sources(market: Market = "germany", offset: Annotated[int, Field(ge
     """Available adapters, market defaults and explicit browser gaps. No network calls."""
     rows = select_sources(market)
     end = min(offset+page_size, len(rows))
-    return encode({"version": "3.5.1", "defaults": {"germany": ["arbeitsagentur", "arbeitnow", *GERMANY_BOARDS], "international": REMOTE_SOURCES},
+    return encode({"version": "3.6.0", "defaults": {"germany": ["arbeitsagentur", "arbeitnow", *GERMANY_BOARDS], "international": REMOTE_SOURCES},
         "broad_scope":"All selected catalog sources, adapters plus mandatory host-browser queue",
         "catalog_entries":len(CATALOG["sources"]), "selected_sources":len(rows), "market":market,
         "sources_page":[{k:r[k] for k in ("id","name","url","research_status")} for r in rows[offset:end]],
@@ -208,7 +213,7 @@ async def _jobspy_batch(terms, location, country, sites, limit, hours, remote, d
         for turn in range(max_pages):
           for term in terms:
             state = entry["query_states"][term]
-            if state["status"] in ("window_end", "repeated_page", "error") or state["received"] >= limit:
+            if state["status"] in ("window_end", "empty_or_blocked", "repeated_page", "error") or state["received"] >= limit:
                 continue
             if circuit_open or time.monotonic() >= deadline:
                 state["status"] = "source_error_deferred" if circuit_open else "time_budget_deferred"
@@ -224,6 +229,7 @@ async def _jobspy_batch(terms, location, country, sites, limit, hours, remote, d
             try:
                 timeout = max(.1, min(deadline-time.monotonic(), max(5, min(120, int(os.getenv("JOBSPY_TIMEOUT_SECONDS", "40"))))))
                 df = await asyncio.to_thread(_run_scrape, _timeout=timeout, **kwargs)
+                upstream = {} if df is None else df.attrs.get('upstream', {})
                 batch = [] if df is None else [_jobspy_to_common(r) for r in _dataframe_to_records(df) if r.get("title")]
                 state["pages"] += 1
                 if term not in entry["queries"]:
@@ -241,6 +247,16 @@ async def _jobspy_batch(terms, location, country, sites, limit, hours, remote, d
                 state["received"] += len(batch)
                 state["next_offset"] += len(batch)
                 state["status"] = "limit_reached" if len(batch) >= wanted else "window_end"
+                if upstream:
+                    state['next_offset'] = upstream['next_offset']
+                    state['status'] = ('error' if upstream['status'] == 'blocked_or_error' else
+                        'limit_reached' if state['received'] >= limit else upstream['status'])
+                    if upstream.get('errors'):
+                        entry.setdefault('errors', []).extend(upstream['errors'])
+                    if upstream['status'] == 'blocked_or_error':
+                        circuit_open = True
+                    if details:
+                        entry['detail_policy'] = 'LinkedIn public listing cards only; shortlisted descriptions need host-browser inspection.'
                 if len(batch) >= wanted:
                     entry["limit_reached"] = True
             except Exception as exc:
@@ -286,6 +302,7 @@ async def search_all_jobs(search_term: Annotated[str, Field(min_length=1, max_le
     include_jobspy=False opts out. International feeds are opt-in; international JobSpy needs explicit country/location.
     search_terms supplies caller-chosen variants; expand_query=True is no longer supported. Details are opt-in.
     max_pages bounds upstream calls; source_offset resumes retrieval. Saved next_offset pages use no network.
+    LinkedIn retrieves one exact-cursor public page per turn; descriptions require browser inspection.
     JobSpy pages up to results_per_source per query, bounded by max_pages and a per-site time budget.
     remote_only requests upstream remote filters where supported and ranks other feeds; it does not verify full remote.
     Every page reports unfinished catalog/browser work. A returned snapshot is not a completed broad search.

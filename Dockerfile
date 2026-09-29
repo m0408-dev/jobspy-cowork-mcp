@@ -8,6 +8,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY server.py sources.py results.py discovery.py http_cache.py middleware.py browser_handoff.py jobspy_worker.py ./
 COPY catalog.py source_catalog.json source_access.json ./
+COPY linkedin_adapter.py ./
 
 # Run as an unprivileged user (defense in depth — the app never needs root).
 RUN useradd --create-home --uid 10001 appuser

@@ -1,5 +1,33 @@
 # JobSpy MCP v3
 
+## Recall repair 3.6.0
+
+- LinkedIn uses a dedicated, single-page public adapter. The pinned JobSpy
+  library rounded starting offsets and advanced them by cumulative result
+  counts; this could overlap or skip pages. The adapter advances by raw cards
+  received, preserving exact offsets even when some cards cannot be parsed.
+- Successful pages are returned to the parent before requesting another page.
+  A later timeout therefore does not discard earlier pages. No login/challenge
+  bypass is implemented. Empty responses are still unverified, not market zero.
+- LinkedIn now retrieves one public page per max_pages turn. Increase max_pages
+  or continue from each query's next_source_offsets for deeper retrieval. Full
+  descriptions remain a separate host-browser task; no badge verifies remote.
+- An Arbeitsagentur malformed page is isolated to its query and produces a
+  retry cursor; other queries and successful pages survive. Only explicit
+  maxErgebnisse=0 can represent an omitted empty list.
+- Every saved page contains a compact retrieval_summary and exact next_page_call.
+  Character-limited pages can contain fewer rows than page_size. Clients must
+  follow the returned offset, not add page_size. remaining_after_page is a
+  snapshot count, never the number of remaining suitable jobs in the market.
+- A catalog entry, queued browser task or successfully tested MCP transport is
+  not evidence of job-board coverage. Browser work and source continuation are
+  still real tasks; no personal job profile or hidden occupation filters exist.
+
+Design references: https://modelcontextprotocol.io/specification/2025-11-25/server/tools
+and https://claude.com/docs/connectors/building/review-criteria . This release
+retains the existing authenticated FastMCP HTTP deployment and read/write tool
+separation; it does not claim a directory certification or universal scraping.
+
 Generic job-search MCP (FastMCP, Streamable HTTP or stdio), independent of any CV or profession. Compact output,
 explicit market selection, persistent pagination and source-level coverage reports.
 No paid API or model call is required by this server.

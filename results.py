@@ -107,6 +107,16 @@ class ResultStore:
                 "next_action": "get_browser_tasks(unattempted_only=true); record observations; audit get_search_coverage",
                 "warning": "Raw candidates, not verified new/suitable jobs. Never infer no more jobs from this page."}
         payload["pagination_note"] = "Use next_offset exactly, never offset + page_size; character budgets shorten pages."
+        # Preserve errors/deferred work even when verbose coverage is truncated.
+        payload["retrieval_summary"] = {
+            name: {"received": entry.get("scanned", 0),
+                   "status": entry.get("status", entry.get("coverage", "unknown")),
+                   "errors": len(entry.get("errors", [])),
+                   "deferred_queries": sum(s.get("status") in ("not_attempted", "time_budget_deferred", "source_error_deferred")
+                       for s in entry.get("query_states", {}).values()),
+                   "resumable_queries": len(entry.get("next_source_offsets", {}))}
+            for name, entry in data["meta"].get("per_source", {}).items()
+        }
         if offset == 0:
             payload["coverage"] = {k:v for k,v in data["meta"].items() if not k.startswith("_")}
             if len(encode(payload["coverage"])) > max_chars // 3:
@@ -119,7 +129,7 @@ class ResultStore:
                 item["description"] = job["description"][:4000]
                 item["description_chars"] = len(job["description"])
                 item["description_truncated"] = len(job["description"]) > 4000
-            if len(encode(payload)) + len(encode(item)) > max_chars - 300:
+            if len(encode(payload)) + len(encode(item)) > max_chars - 700:
                 if payload["jobs"]:
                     break
                 # A single huge field cannot stall pagination.
@@ -129,6 +139,10 @@ class ResultStore:
             payload["jobs"].append(item)
         end = offset + len(payload["jobs"])
         payload.update(count=len(payload["jobs"]), next_offset=end if end < len(jobs) else None)
+        payload["remaining_after_page"] = max(0, len(jobs)-end)
+        payload["next_page_call"] = ({"tool": "get_result_page", "arguments": {
+            "result_id": result_id, "offset": end, "page_size": page_size,
+            "response_format": "detailed" if detailed else "concise"}} if end < len(jobs) else None)
         return encode(payload)
 
     def details(self, result_id, ids, text_offset=0, text_chars=6000):
