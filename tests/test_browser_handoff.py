@@ -6,7 +6,7 @@ from unittest.mock import patch, AsyncMock
 from fastmcp import Client
 import server
 from results import ResultStore
-from browser_handoff import make_tasks, summary
+from browser_handoff import make_tasks, summary, search_link
 from sources import _dedup_key
 
 
@@ -38,6 +38,7 @@ class HandoffTests(unittest.IsolatedAsyncioTestCase):
         d=await self.call("get_browser_tasks",result_id=rid)
         self.assertEqual(d["summary"]["pending"],1)
         self.assertIn("arbeitsagentur.de/jobsuche/suche?",d["tasks"][0]["url"])
+        self.assertIn("reload that observed URL",d["tasks"][0]["navigation_hint"])
 
     async def test_import_and_retry_do_not_duplicate(self):
         rid=self.snapshot()
@@ -87,6 +88,51 @@ class HandoffTests(unittest.IsolatedAsyncioTestCase):
     def test_international_not_silently_germany(self):
         tasks=make_tasks({"market":"international","browser_sweep":True,"queries_used":["German support"]})
         self.assertTrue(all(t["location"]=="" and "Deutschland" not in t["url"] for t in tasks))
+
+    def test_aa_nationwide_does_not_geocode_country_as_town(self):
+        self.assertNotIn("wo=", search_link("arbeitsagentur", "Koch", "Deutschland", "germany"))
+        self.assertIn("wo=Berlin", search_link("arbeitsagentur", "Koch", "Berlin", "germany"))
+
+    async def test_recovery_queue_prioritizes_failures_and_preserves_ids(self):
+        tasks=make_tasks({"market":"germany","catalog_scope":"all", "queries_used":["Koch"],
+            "per_source":{"indeed":{"coverage":"partial_error"}}})
+        rid=server.STORE.save([], {"_browser_tasks":tasks})
+        d=await self.call("get_browser_tasks",result_id=rid,recovery_only=True)
+        self.assertEqual([t["source"] for t in d["tasks"]],["indeed"])
+        original=next(t for t in tasks if t["source"]=="indeed")
+        self.assertEqual(d["tasks"][0]["id"],original["id"])
+        self.assertFalse(d["summary"]["completion_allowed"])
+        self.assertEqual(d["summary"]["recovery_sources"],["indeed"])
+        all_view=await self.call("get_browser_tasks",result_id=rid)
+        self.assertEqual(all_view["tasks"][0]["source"],"indeed")
+        selected=await self.call("get_browser_tasks",result_id=rid,source="xing")
+        self.assertTrue(all(t["source"]=="xing" for t in selected["tasks"]))
+
+    async def test_transient_browser_retry_and_success_history(self):
+        rid=self.snapshot()
+        args=dict(result_id=rid,task_id="0",browser="fixture",
+            visited_urls=["https://www.arbeitsagentur.de/jobsuche/suche?was=IT"],
+            evidence="Observed the requested page and recorded its actual current access state.")
+        await self.call("record_browser_check",**args,outcome="blocked",issue="network_error")
+        t=(await self.call("get_browser_tasks",result_id=rid))["tasks"][0]
+        self.assertTrue(t["retry_before_concluding"])
+        await self.call("record_browser_check",**args,outcome="checked",issue="none",inspection_stage="search_results")
+        t=(await self.call("get_browser_tasks",result_id=rid))["tasks"][0]
+        self.assertEqual(t["attempt_count"],2)
+        self.assertEqual(t["attempt_history"][0]["issue"],"network_error")
+        self.assertNotIn("retry_before_concluding",t)
+        self.assertEqual((await self.call("get_browser_tasks",result_id=rid,recovery_only=True))["tasks"],[])
+
+    async def test_repeat_block_is_not_infinite_retry_or_success(self):
+        rid=self.snapshot()
+        for _ in range(5):
+            await self.call("record_browser_check",result_id=rid,task_id="0",outcome="blocked",
+                issue="bot_protection",browser="fixture",visited_urls=["https://example.com/"],
+                evidence="A verification wall remains visible; no CAPTCHA was solved.")
+        d=await self.call("get_browser_tasks",result_id=rid)
+        self.assertEqual(len(d["tasks"][0]["attempt_history"]),3)
+        self.assertNotIn("retry_before_concluding",d["tasks"][0])
+        self.assertFalse(d["summary"]["completion_allowed"])
 
     def test_metadata_cannot_exceed_response_budget(self):
         rid=self.store.save([dict(title="Support")],{"large":"x"*40000})

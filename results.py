@@ -98,13 +98,19 @@ class ResultStore:
         audit = data["meta"].get("catalog_coverage")
         handoff = data["meta"].get("browser_handoff", {})
         tasks = data["meta"].get("_browser_tasks", [])
+        if tasks:
+            from browser_handoff import summary
+            handoff = summary(tasks)
+            data["meta"]["browser_handoff"] = handoff
         if audit or handoff:
             payload["search_status"] = {
                 "complete": bool(audit and audit.get("all_documented_scopes_checked")),
                 "exhaustive": False,
                 "sources_not_attempted": (audit or {}).get("status_counts", {}).get("not_attempted", 0),
                 "browser_pending": sum(t.get("status") not in ("checked", "checked_no_results") for t in tasks) if tasks else handoff.get("pending", 0),
-                "next_action": "get_browser_tasks(unattempted_only=true); record observations; audit get_search_coverage",
+                "recovery_pending": handoff.get("recovery_pending", 0),
+                "recovery_sources": handoff.get("recovery_sources", []),
+                "next_action": handoff.get("next_step", "get_browser_tasks(pending_only=true)") + "; record observations; audit get_search_coverage",
                 "warning": "Raw candidates, not verified new/suitable jobs. Never infer no more jobs from this page."}
         payload["pagination_note"] = "Use next_offset exactly, never offset + page_size; character budgets shorten pages."
         # Preserve errors/deferred work even when verbose coverage is truncated.

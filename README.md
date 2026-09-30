@@ -1,5 +1,11 @@
 # JobSpy MCP v3
 
+## Browser recovery 3.6.1
+
+Failed API sources are prioritized ahead of the independent major-board sweep and remaining catalog. Use `get_browser_tasks(recovery_only=true, pending_only=true)` or select a `source`; IDs remain stable when ordering changes. Restart pagination at zero after recording observations.
+
+Transient browser/network failures get one requested normal-navigation retry before concluding. CAPTCHA/security boundaries remain in force. Bounded attempt history distinguishes a previous block from a later successful browser search. Recovery counts and source names remain visible in compact result pages; an unresolved queue never means zero jobs or complete coverage. The MCP instructs the host agent to use its browser; it cannot autonomously control a browser the host has not exposed, nor guarantee third-party availability.
+
 ## Recall repair 3.6.0
 
 - LinkedIn uses a dedicated, single-page public adapter. The pinned JobSpy

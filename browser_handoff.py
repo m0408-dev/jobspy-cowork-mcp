@@ -27,15 +27,33 @@ INSTRUCTIONS = (
     "all task pages; use get_search_coverage to audit gaps. Task url is the board entry point; search the "
     "query there, with indexed_search_url as fallback, not as proof of a board search. If no browser is "
     "available, report the run incomplete. Never claim a full run while sources remain not_attempted."
-    " Process unattempted tasks before retrying blocked tasks. Do not loop indefinitely on security walls. "
+    " Resolve failed upstream sources first (recovery_only=true), then the independent major-board sweep, "
+    "then remaining catalog tasks. Before concluding, retry a transient browser failure once through the "
+    "board's normal search UI or a fresh tab; a historical block is not a permanent outage. Never loop "
+    "on security walls or solve a CAPTCHA without required user confirmation. "
     "On TLS/DNS/404 errors verify canonical links via official navigation or indexed search; never bypass "
     "certificate warnings or attest work eligibility. Record alternative employer discoveries as partial "
     "if the original board query remains unverified."
 )
 
+FINISHED = {"checked", "checked_no_results"}
+
+
+def recovery_task(task):
+    return task.get("reason") == "upstream_failed_or_ambiguous" or task.get("status") in ("blocked", "login_required")
+
+
+def task_priority(task):
+    # Sort views, never renumber persisted IDs: recordings must remain stable.
+    return (0 if recovery_task(task) else 1 if task["source"] in SWEEP else 2,
+            task.get("attempt_count", 1 if task.get("checked_at") else 0))
+
 def search_link(source, term, location, market, remote=False, days=0):
     if source == "arbeitsagentur":
-        return "https://www.arbeitsagentur.de/jobsuche/suche?" + urlencode({"was":term,"wo":location})
+        params = {"was":term}
+        if location and location.lower() not in ("deutschland", "germany", "remote", "dach"):
+            params["wo"] = location
+        return "https://www.arbeitsagentur.de/jobsuche/suche?" + urlencode(params)
     if source == "linkedin":
         params = {"keywords":term,"location":location}
         if remote: params["f_WT"] = "2"
@@ -59,7 +77,7 @@ def make_tasks(meta):
     terms = meta.get("queries_used") or [meta.get("employer", "jobs")]
     sources = {}
     for source, info in meta.get("per_source", {}).items():
-        status = str(info.get("status", ""))
+        status = str(info.get("status", "")) + " " + str(info.get("coverage", ""))
         if info.get("error") or info.get("errors") or any(s in status for s in ("error", "blocked", "unavailable", "empty_unverified")):
             sources[source] = "upstream_failed_or_ambiguous"
     if meta.get("browser_sweep") and not meta.get("catalog_scope"):
@@ -78,15 +96,30 @@ def make_tasks(meta):
             if any(t["source"] == source and t["query"] == term for t in tasks):
                 continue
             tasks.append({"id":str(len(tasks)), "source":source,"reason":reason,"query":term,
-                "url":meta.get("browser_url") or search_link(source, term, location, market),"market":market,"location":location,
+                "url":meta.get("browser_url") or search_link(source, term, location, market,
+                    bool(meta.get("remote_boost")), meta.get("days_old", 0)),"market":market,"location":location,
                 "filters":{"remote_requested":bool(meta.get("remote_boost")),"days_old":meta.get("days_old",0)},
                 "status":"pending"})
+    for task in tasks:
+        if task["source"] == "arbeitsagentur":
+            task["navigation_hint"] = (
+                "If changing the query updates the URL but leaves old results or shows Keine Verbindung, "
+                "reload that observed URL once. Initial server-rendered results can work while dynamic API "
+                "requests fail. Verify the result heading matches the query; do not count stale results. "
+                "Apply the same check after filters and pagination; never claim all pages checked.")
     return tasks
 
 def summary(tasks):
-    pending = sum(t["status"] not in ("checked", "checked_no_results") for t in tasks)
+    unresolved = [t for t in tasks if t["status"] not in FINISHED]
+    pending = len(unresolved)
+    recovery = [t for t in unresolved if recovery_task(t)]
     return {"action":"use_host_browser" if pending else "documented_checks_finished",
-        "pending":pending,"total":len(tasks),"tool":"get_browser_tasks", "exhaustive":False}
+        "pending":pending,"total":len(tasks),"tool":"get_browser_tasks", "exhaustive":False,
+        "recovery_pending":len(recovery),
+        "recovery_sources":sorted({t["source"] for t in recovery}),
+        "completion_allowed":not pending,
+        "next_step":"get_browser_tasks(recovery_only=true, pending_only=true)" if recovery else
+            "get_browser_tasks(pending_only=true)" if pending else "Report only documented scope"}
 
 class BrowserJob(BaseModel):
     title: str = Field(min_length=1,max_length=500)
@@ -115,7 +148,8 @@ def register_browser_tools(mcp, store, read):
     @mcp.tool(annotations={**read,"title":"Read host browser tasks"})
     def get_browser_tasks(result_id: str, offset: Annotated[int,Field(ge=0)]=0,
         page_size: Annotated[int,Field(ge=1,le=10)]=5,
-        pending_only: bool = False, unattempted_only: bool = False) -> str:
+        pending_only: bool = False, unattempted_only: bool = False,
+        recovery_only: bool = False, source: str | None = None) -> str:
         """Read browser tasks and evidence. Execute pending tasks using the host browser; no network call here."""
         tasks = store.load(result_id)["meta"].get("_browser_tasks",[])
         total_summary = summary(tasks)
@@ -123,6 +157,11 @@ def register_browser_tools(mcp, store, read):
             tasks = [t for t in tasks if t["status"] not in ("checked", "checked_no_results")]
         if unattempted_only:
             tasks = [t for t in tasks if not t.get("checked_at")]
+        if recovery_only:
+            tasks = [t for t in tasks if t["status"] not in FINISHED and recovery_task(t)]
+        if source:
+            tasks = [t for t in tasks if t["source"] == source]
+        tasks = sorted(tasks, key=task_priority)
         selected=[]
         for task in tasks[offset:offset+page_size]:
             if selected and len(encode(selected))+len(encode(task))>20000:
@@ -130,10 +169,10 @@ def register_browser_tools(mcp, store, read):
             selected.append(task)
         end=offset+len(selected)
         return encode({"result_id":result_id,"instructions":INSTRUCTIONS,"summary":total_summary,
-            "pagination_note":"With pending_only, restart at offset 0 after recording checks; task IDs remain stable.",
+            "pagination_note":"After recording checks restart at offset 0: priority/order can change; task IDs remain stable.",
             "tasks":selected,"next_offset":end if end<len(tasks) else None})
 
-    @mcp.tool(annotations={"readOnlyHint":False,"destructiveHint":False,"openWorldHint":False,"idempotentHint":True,"title":"Save browser observations"})
+    @mcp.tool(annotations={"readOnlyHint":False,"destructiveHint":False,"openWorldHint":False,"idempotentHint":False,"title":"Save browser observations"})
     def record_browser_check(result_id: str, task_id: str,
         outcome: Literal["checked","checked_no_results","partial","blocked","login_required"],
         browser: Annotated[str,Field(min_length=1,max_length=100)],
@@ -169,6 +208,11 @@ def register_browser_tools(mcp, store, read):
             task=next((t for t in tasks if t["id"]==task_id),None)
             if task is None:
                 raise ValueError("Unknown browser task")
+            if task.get("checked_at"):
+                history = task.setdefault("attempt_history", [])
+                history.append({k:task.get(k) for k in ("status","issue","checked_at","browser")})
+                task["attempt_history"] = history[-3:]
+            task["attempt_count"] = task.get("attempt_count", 1 if task.get("checked_at") else 0) + 1
             task.update(status=outcome, browser=browser, visited_urls=visited_urls, evidence=evidence,
                 evidence_origin="client_reported",checked_at=time.time(), inspection_stage=inspection_stage, issue=issue)
             if outcome in ("blocked","login_required","partial"):
@@ -180,9 +224,13 @@ def register_browser_tools(mcp, store, read):
                 elif issue in ("tls_error","dns_error","wrong_url","network_error"):
                     task["next_action"]="Verify canonical URL via official links/indexed search; never bypass TLS warnings."
                 elif issue in ("bot_protection","eligibility_required","login_required"):
-                    task["next_action"]="Record access limitation; use indexed search/direct employer alternatives without bypassing or making declarations."
+                    task["next_action"]="Try normal board navigation or another available browser once; request confirmation for CAPTCHA if encountered. Otherwise record limitation and use indexed/direct employer alternatives; never bypass controls or make declarations."
+                if issue in ("network_error", "render_incomplete", "bot_protection") and task["attempt_count"] < 2:
+                    task["retry_before_concluding"] = True
             else:
                 task.pop("next_action",None)
+            if outcome in FINISHED or task["attempt_count"] >= 2:
+                task.pop("retry_before_concluding", None)
             indexed={_dedup_key(j):j for j in data["jobs"]}
             for item in jobs:
                 job=item.model_dump(exclude_none=True)
