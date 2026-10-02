@@ -5,10 +5,66 @@ Keeping page boundaries outside python-jobspy avoids its cumulative offset bug
 and saves successful pages before a later request can time out.
 """
 import re
+import asyncio
+import time
+from urllib.parse import urlsplit
 import httpx
 from bs4 import BeautifulSoup
 
 URL = 'https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search'
+
+
+def detail_url(job_url):
+    """Only canonical public LinkedIn IDs; never fetch arbitrary snapshot URLs."""
+    url = urlsplit(job_url or '')
+    match = re.fullmatch(r'/jobs/view/(\d+)/?', url.path)
+    if url.scheme != 'https' or url.netloc != 'www.linkedin.com' or not match:
+        return None
+    return 'https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/' + match[1]
+
+
+def parse_detail(html):
+    soup = BeautifulSoup(html, 'html.parser')
+    body = soup.select_one('.show-more-less-html__markup')
+    if not body or not body.get_text(' ', strip=True):
+        return {'detail_status': 'unavailable_or_blocked'}
+    return {'description': body.get_text('\n', strip=True), 'detail_status': 'loaded'}
+
+
+async def enrich_jobs(client, jobs, budget=12):
+    """Bounded optional enrichment after cards are retained by the parent.
+
+    Failures never discard cards. A rate limit/login wall stops further requests.
+    Remaining jobs stay explicitly deferred for shortlist/browser recovery.
+    """
+    deadline = time.monotonic() + max(0, budget)
+    stopped = False
+    for job in jobs:
+        if job.get('description'):
+            continue
+        url = detail_url(job.get('job_url'))
+        if not url:
+            job['detail_status'] = 'unsupported_url'
+            continue
+        remaining = deadline - time.monotonic()
+        if stopped or remaining <= 0:
+            job['detail_status'] = 'deferred'
+            continue
+        try:
+            response = await asyncio.wait_for(client.get(url), timeout=min(4, remaining))
+            if response.status_code != 200:
+                job['detail_status'] = 'blocked_or_error'
+                job['detail_error'] = 'HTTP ' + str(response.status_code)
+                stopped = response.status_code in (301, 302, 303, 307, 308, 401, 403, 429, 999)
+            else:
+                job.update(parse_detail(response.text))
+                stopped = job['detail_status'] == 'unavailable_or_blocked'
+        except (httpx.HTTPError, asyncio.TimeoutError) as exc:
+            job['detail_status'] = 'blocked_or_error'
+            job['detail_error'] = type(exc).__name__
+            stopped = True
+    return {status: sum(j.get('detail_status') == status for j in jobs)
+            for status in sorted({j.get('detail_status') for j in jobs if j.get('detail_status')})}
 
 def parse_page(html, offset):
     soup = BeautifulSoup(html, 'html.parser')

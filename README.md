@@ -1,5 +1,19 @@
 # JobSpy MCP v3
 
+## Description recovery 3.6.2
+
+LinkedIn `fetch_details=true` / `linkedin_fetch_description=true` now performs
+bounded public description retrieval after search cards have reached the parent.
+This keeps search pages safe from enrichment timeouts. The optional pass has a
+12-second total budget, a 4-second request ceiling, and stops on access/rate-limit
+walls without bypassing them. Every unfilled card remains stored with a status.
+`get_job_details(fetch_missing=true)` can now enrich up to three shortlisted
+LinkedIn jobs as well as AA jobs. Only fixed public endpoints and canonical IDs
+are allowed; arbitrary URLs are never fetched. Cached bodies avoid repeated calls.
+Compact pages expose missing description totals and enrichment counts even when
+large coverage metadata is shortened. Source quotas and unresolved browser work
+remain explicit; this repair does not remove third-party access restrictions.
+
 ## Browser recovery 3.6.1
 
 Failed API sources are prioritized ahead of the independent major-board sweep and remaining catalog. Use `get_browser_tasks(recovery_only=true, pending_only=true)` or select a `source`; IDs remain stable when ordering changes. Restart pagination at zero after recording observations.
@@ -17,7 +31,8 @@ Transient browser/network failures get one requested normal-navigation retry bef
   bypass is implemented. Empty responses are still unverified, not market zero.
 - LinkedIn now retrieves one public page per max_pages turn. Increase max_pages
   or continue from each query's next_source_offsets for deeper retrieval. Full
-  descriptions remain a separate host-browser task; no badge verifies remote.
+  descriptions can be fetched with opt-in enrichment (3.6.2); blocked bodies
+  remain a host-browser task. No badge verifies remote.
 - An Arbeitsagentur malformed page is isolated to its query and produces a
   retry cursor; other queries and successful pages survive. Only explicit
   maxErgebnisse=0 can represent an omitted empty list.
@@ -75,7 +90,7 @@ No paid API or model call is required by this server.
 | `search_remote_jobs` | Same broad defaults with remote ranking, international opt-in |
 | `search_jobs` | Direct selection of eight JobSpy boards; explicit location/country |
 | `get_result_page` | Next compact/detailed page from a saved result |
-| `get_job_details` | Stored texts for up to three IDs; optional missing AA details only |
+| `get_job_details` | Stored texts for up to three IDs; optional missing AA/LinkedIn details |
 | `list_job_sources` | Capabilities/defaults/coverage gaps, without network calls |
 | `search_employer_jobs` | Explicit Greenhouse, Lever or Personio employer board |
 | `discover_job_sources` | Optional Bing RSS discovery of additional board/employer links |
@@ -89,7 +104,7 @@ No paid API or model call is required by this server.
 2. A result contains `result_id`, `total_fetched`, compact `jobs` and `next_offset`.
 3. Use `get_result_page(result_id, offset=next_offset)` to continue **without re-scraping**.
 4. Fetch shortlisted texts by ID with `get_job_details`. Long texts have `next_text_offset`.
-   `fetch_missing=true` requests AA bodies only for those selected jobs; unsupported missing texts
+   `fetch_missing=true` requests AA/LinkedIn bodies only for those selected jobs; unsupported missing texts
    require browser inspection. No hidden bulk enrichment.
 5. International searches are separate calls, e.g. `market="international", search_term="German support"`.
    International JobSpy additionally requires explicit `location` and `country_indeed`.

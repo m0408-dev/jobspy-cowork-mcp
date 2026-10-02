@@ -120,9 +120,11 @@ class ResultStore:
                    "errors": len(entry.get("errors", [])),
                    "deferred_queries": sum(s.get("status") in ("not_attempted", "time_budget_deferred", "source_error_deferred")
                        for s in entry.get("query_states", {}).values()),
-                   "resumable_queries": len(entry.get("next_source_offsets", {}))}
+                   "resumable_queries": len(entry.get("next_source_offsets", {})),
+                   "detail_counts": entry.get("detail_counts", {})}
             for name, entry in data["meta"].get("per_source", {}).items()
         }
+        payload['missing_descriptions'] = sum(not j.get('description') for j in jobs)
         if offset == 0:
             payload["coverage"] = {k:v for k,v in data["meta"].items() if not k.startswith("_")}
             if len(encode(payload["coverage"])) > max_chars // 3:
