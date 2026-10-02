@@ -57,6 +57,8 @@ async def enrich_jobs(client, jobs, budget=12):
                 job['detail_error'] = 'HTTP ' + str(response.status_code)
                 stopped = response.status_code in (301, 302, 303, 307, 308, 401, 403, 429, 999)
             else:
+                # Explicit null also clears stale errors in merge-based snapshot updates.
+                job['detail_error'] = None
                 job.update(parse_detail(response.text))
                 stopped = job['detail_status'] == 'unavailable_or_blocked'
         except (httpx.HTTPError, asyncio.TimeoutError) as exc:

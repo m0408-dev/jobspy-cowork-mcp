@@ -64,7 +64,9 @@ class DetailsTests(unittest.IsolatedAsyncioTestCase):
     async def test_shortlist_via_mcp_persists_body_without_refetch(self):
         with tempfile.TemporaryDirectory() as tmp:
             store=ResultStore(str(Path(tmp)/'snapshot.db'))
-            rid=store.save(self.jobs(1),{})
+            jobs=self.jobs(1)
+            jobs[0].update(detail_status='blocked_or_error',detail_error='HTTP 429')
+            rid=store.save(jobs,{})
             original=server.STORE.path
             server.STORE.path=store.path
             calls=[]
@@ -78,6 +80,7 @@ class DetailsTests(unittest.IsolatedAsyncioTestCase):
                             r=await c.call_tool('get_job_details',dict(result_id=rid,job_ids=['0'],fetch_missing=True))
                             body=json.loads(r.content[0].text)
                             self.assertEqual(body['jobs'][0]['detail_status'],'loaded')
+                            self.assertIsNone(body['jobs'][0].get('detail_error'))
                             self.assertIn('Deutsch',body['jobs'][0]['description'])
                 self.assertEqual(len(calls),1)
                 self.assertEqual(json.loads(store.page(rid))['missing_descriptions'],0)
