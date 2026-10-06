@@ -38,7 +38,7 @@ async def main():
         assert len(ts)==12
         r=await c.call_tool('list_job_sources',{})
         d=json.loads(r.content[0].text)
-        assert d['version']=='3.6.2'
+        assert d['version']=='3.7.0'
         assert d['catalog_entries']==144
         from results import ResultStore
         from browser_handoff import make_tasks
@@ -57,10 +57,13 @@ async def main():
                 ids.extend(j['id'] for j in page['jobs'])
                 offset=page['next_offset']
             assert len(set(ids))==130
+            view=json.loads((await c.call_tool('get_result_page',{'result_id':rid,'text_query':'absent-fixture'})).content[0].text)
+            assert view['total_fetched']==130 and view['total_in_view']==0
+            assert view['jobs']==[] and view['next_offset'] is None
         finally:
             with store.connect() as db:
                 db.execute('DELETE FROM snapshots WHERE id=?',(rid,))
-        print('MCP protocol OK: 12 tools, v3.6.2, full catalog loaded')
+        print('MCP protocol OK: 12 tools, v3.7.0, full catalog loaded')
         print('HTTP paging + Unicode roundtrip + incomplete coverage checks OK')
 asyncio.run(main())'''
 

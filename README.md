@@ -1,5 +1,19 @@
 # JobSpy MCP v3
 
+## Optional snapshot views 3.7.0
+
+`get_result_page` accepts optional `text_query` (literal `|`-separated OR terms)
+and `remote_labels`. These are caller-selected views, not occupation or personal
+filters. Reset offset to zero when changing a view. `total_fetched` remains the
+stored count; `total_in_view` counts matches. Stable IDs and all raw cards remain
+available. `next_page_call` carries the filters across shortened pages.
+Unknown labels are not rejection evidence. Existing clients can omit both fields.
+
+Remote text hints now recognize explicit negations of attendance obligations and
+bounded remote-day allowances. They remain heuristics, not verified remote terms.
+Source/browser gaps still require real inspection; this release adds no claim of
+universal job-board coverage.
+
 ## Description recovery 3.6.2
 
 LinkedIn `fetch_details=true` / `linkedin_fetch_description=true` now performs

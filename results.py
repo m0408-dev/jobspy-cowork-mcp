@@ -85,16 +85,30 @@ class ResultStore:
                 raise ValueError("Snapshot cache full; cannot store enrichment")
             db.execute("UPDATE snapshots SET body=? WHERE id=?", (body, result_id))
 
-    def page(self, result_id, offset=0, page_size=30, detailed=False, max_chars=24000):
+    def page(self, result_id, offset=0, page_size=30, detailed=False, max_chars=24000,
+             text_query=None, remote_labels=None):
         if offset < 0 or not 1 <= page_size <= 100:
             raise ValueError("Invalid page offset/size")
         data = self.load(result_id)
         jobs = data["jobs"]
+        total_stored = len(jobs)
+        # Optional views never remove cards from storage or change their stable IDs.
+        # Literal OR terms are caller supplied, not an embedded occupation filter.
+        if text_query:
+            terms = [t.strip().casefold() for t in text_query.split('|') if t.strip()]
+            jobs = [j for j in jobs if any(t in ' '.join(str(j.get(k) or '')
+                    for k in ('title', 'company', 'location', 'description')).casefold() for t in terms)]
+        if remote_labels is not None:
+            jobs = [j for j in jobs if j.get('remote_confidence', 'unknown') in remote_labels]
         if data["meta"].get("catalog_scope"):
             from catalog import coverage
             data["meta"]["catalog_coverage"] = {k:v for k,v in coverage(data["meta"]).items() if k != "entries"}
-        payload = {"result_id": result_id, "total_fetched": len(jobs), "offset": offset,
+        payload = {"result_id": result_id, "total_fetched": total_stored, "total_in_view": len(jobs), "offset": offset,
                    "expires_in_seconds": data["expires_in_seconds"], "jobs": []}
+        if text_query or remote_labels is not None:
+            payload['view'] = {'text_query': text_query, 'remote_labels': remote_labels,
+                'omitted_from_view': total_stored-len(jobs),
+                'note': 'Optional view only; reset filters to retrieve all stored cards. Unknown is not a rejection.'}
         audit = data["meta"].get("catalog_coverage")
         handoff = data["meta"].get("browser_handoff", {})
         tasks = data["meta"].get("_browser_tasks", [])
@@ -150,6 +164,8 @@ class ResultStore:
         payload["remaining_after_page"] = max(0, len(jobs)-end)
         payload["next_page_call"] = ({"tool": "get_result_page", "arguments": {
             "result_id": result_id, "offset": end, "page_size": page_size,
+            **({'text_query':text_query} if text_query else {}),
+            **({'remote_labels':remote_labels} if remote_labels is not None else {}),
             "response_format": "detailed" if detailed else "concise"}} if end < len(jobs) else None)
         return encode(payload)
 

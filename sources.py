@@ -252,7 +252,7 @@ def date_ordinal(job: dict[str, Any]) -> int:
 _BUERO = r"b(?:ü|ue|u)ro"          # büro / buero / buro — ads are written with all three
 _HYBRID_KW = re.compile(
     r"\b(hybrid|hybride[rsn]?|teil(?:weise|s)?\s*remote|teilremote|vor[-\s]?ort|on[-\s]?site|"
-    rf"präsenz|praesenz|anwesenheit(?:spflicht)?|im\s+{_BUERO}|ins\s+{_BUERO}|"
+    rf"präsenz(?:pflicht)?|praesenz(?:pflicht)?|anwesenheit(?:spflicht)?|im\s+{_BUERO}|ins\s+{_BUERO}|"
     rf"\d\s*tage?\s*(?:pro\s*woche\s*)?(?:im\s*)?(?:{_BUERO}|office|vor\s*ort)|"
     r"relocation|umzug|gelegentlich\s+vor\s+ort|occasional(?:ly)?\s+on[-\s]?site)\b",
     re.IGNORECASE,
@@ -295,7 +295,12 @@ def remote_confidence(job: dict[str, Any]) -> str:
     hay = f"{title} {desc} {job.get('location') or ''}".lower()
     if re.search(r"(?:no|not|kein(?:e|en)?|nicht)\s+(?:fully\s+|100\s*%\s*)?(?:remote|home\s?office)", hay):
         return "negative_or_mixed"
-    hybrid = bool(_HYBRID_KW.search(hay))
+    # A negated attendance requirement is not a hybrid obligation. Keep the
+    # original text untouched for the caller; only remove narrow explicit negations.
+    assessed = re.sub(r'\b(?:keine?|ohne)\s+(?:pflicht(?:mäßige[nr]?)?\s+)?(?:präsenzpflicht|anwesenheitspflicht|büropflicht)\b', '', hay)
+    assessed = re.sub(r'\bno\s+(?:mandatory\s+)?(?:office attendance|on[- ]site requirement)\b', '', assessed)
+    hybrid = bool(_HYBRID_KW.search(assessed))
+    hybrid = hybrid or bool(re.search(r'(?:remote|home\s?office).{0,30}(?:bis zu|up to)\s*\d+\s*(?:tage|days)\s*(?:pro|per|a|im)\s*(?:jahr|year)', hay))
     strict = bool(_STRICT_KW.search(hay))
     if strict and hybrid:
         return "mixed"

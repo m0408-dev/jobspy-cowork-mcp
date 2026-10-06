@@ -128,9 +128,12 @@ def _snapshot(jobs, meta, response_format="concise", page_size=30):
 @mcp.tool(annotations={**READ, "title": "Read saved page"})
 def get_result_page(result_id: str, offset: Annotated[int, Field(ge=0)] = 0,
     page_size: Annotated[int, Field(ge=1, le=100)] = 30,
-    response_format: Literal["concise", "detailed"] = "concise") -> str:
-    """Next saved page using next_offset. No scraping. Snapshots expire after 6h by default."""
-    return STORE.page(result_id, offset, page_size, response_format == "detailed", MAX_RESULT_CHARS)
+    response_format: Literal["concise", "detailed"] = "concise",
+    text_query: Annotated[str | None, Field(max_length=500)] = None,
+    remote_labels: list[Literal['strict','likely','mixed','hybrid','negative_or_mixed','unverified_title','unknown','no_signal']] | None = None) -> str:
+    """Page a saved snapshot without network. Optional literal text_query uses | for OR across title/company/location/body; remote_labels selects text hints, not verified eligibility. Filters preserve stored cards and IDs; restart offset=0 when changing filters. Follow next_page_call. Unknown bodies require details. Expires after 6h by default."""
+    return STORE.page(result_id, offset, page_size, response_format == "detailed", MAX_RESULT_CHARS,
+                      text_query, remote_labels)
 
 @mcp.tool(annotations={**READ, "title": "Read shortlisted details"})
 async def get_job_details(result_id: str, job_ids: Annotated[list[str], Field(min_length=1, max_length=3)],
@@ -182,7 +185,7 @@ def list_job_sources(market: Market = "germany", offset: Annotated[int, Field(ge
     """Available adapters, market defaults and explicit browser gaps. No network calls."""
     rows = select_sources(market)
     end = min(offset+page_size, len(rows))
-    return encode({"version": "3.6.2", "defaults": {"germany": ["arbeitsagentur", "arbeitnow", *GERMANY_BOARDS], "international": REMOTE_SOURCES},
+    return encode({"version": "3.7.0", "defaults": {"germany": ["arbeitsagentur", "arbeitnow", *GERMANY_BOARDS], "international": REMOTE_SOURCES},
         "broad_scope":"All selected catalog sources, adapters plus mandatory host-browser queue",
         "catalog_entries":len(CATALOG["sources"]), "selected_sources":len(rows), "market":market,
         "sources_page":[{k:r[k] for k in ("id","name","url","research_status")} for r in rows[offset:end]],
