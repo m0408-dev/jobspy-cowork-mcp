@@ -1,7 +1,7 @@
 [project]
 name = "jobspy-cowork-mcp"
-version = "3.7.0"
-description = "MCP server that scrapes jobs across Indeed/LinkedIn/Glassdoor/Google/ZipRecruiter/Bayt/Naukri/BDJobs via JobSpy, for Claude Cowork custom connectors."
+version = "4.0.0"
+description = "Durable multi-source job collector with compact, host-independent MCP tools."
 requires-python = ">=3.10"
 dependencies = [
     "fastmcp==3.4.4",

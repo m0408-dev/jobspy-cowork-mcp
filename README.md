@@ -1,4 +1,60 @@
-# JobSpy MCP v3
+# Job Collector MCP v4
+
+The default container now runs `v4_server.py`: persistent background collection,
+nine compact MCP tools, page-by-page commits, automatic cursor continuation,
+bounded retries, public structured-data fallback and explicit recovery tasks.
+The old `server.py` remains available as a separate v3 compatibility entry point.
+Reconnect existing MCP clients after upgrading so their tool schemas refresh.
+
+## v4 quick start
+
+```sh
+uv sync --frozen --python 3.11
+uv run --python 3.11 python v4_server.py
+# Local MCP client:
+MCP_TRANSPORT=stdio uv run --python 3.11 python v4_server.py
+# Unit and MCP contract tests:
+uv run --python 3.11 python -m unittest discover -s tests -v
+# Optional real upstream acceptance:
+uv run --python 3.11 python tests/live_harvest.py
+```
+
+1. `start_job_search(queries=["IT Support", "Helpdesk"])` returns `search_id`
+   immediately. Omit queries / use `[]` to collect without a profession filter.
+   All catalog sources in the market are planned. `sources=[...]` selects a smaller
+   scope. `sources=[]` with `employers=[{"provider":"greenhouse","slug":"canonical"}]`
+   retrieves an explicit employer board. `page_limit` defaults to 30 per task.
+2. `find_jobs(search_id)` reads matching cards while collection continues.
+   `query=""` returns **all** collected candidates. `get_search_status(search_id)`
+   returns progress; respect `poll_after_seconds` instead of polling rapidly.
+3. `read_job(search_id, job_id)` returns a bounded description and can recover
+   missing AA/LinkedIn text. Follow `next_text_offset` for long descriptions.
+4. `get_recovery_tasks(search_id)` returns only failed/limited work after automatic
+   attempts. `record_recovery` saves actual host-browser/search observations and
+   job cards. No model/browser is secretly called by this server.
+5. `resume_search(search_id)` continues limited tasks from saved cursors;
+   `retry_failed=true` explicitly retries unresolved failures.
+   `pause_search(search_id)` stops outstanding work while preserving saved data.
+
+`list_job_sources` describes actual retrieval methods. An entry in the catalog
+does not imply a tested custom scraper. Public crawling reads JSON-LD JobPosting,
+RSS/Atom and sitemaps; sites without accessible data remain visible gaps. No
+CAPTCHA or login bypass. No claim of every job on the internet.
+
+V4 data lives in `HARVEST_DB` (default `harvest.sqlite` beside `RESULT_DB`), with no
+automatic six-hour expiry. Back up the Docker data volume and monitor its size.
+`HARVEST_WORKERS` defaults to 4 (maximum 8); JobSpy subprocesses remain serialized
+on the existing small Oracle server. Jobs/cursors commit in one transaction and
+expired leases resume after a crash. Legacy snapshots are retained separately.
+
+See [research, architecture and limits](docs/architecture-v4.md).
+
+---
+
+The sections below document the retained **v3 compatibility server**, not the v4
+default tool contract.
+
+# JobSpy MCP v3 (legacy)
 
 ## Optional snapshot views 3.7.0
 

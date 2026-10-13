@@ -525,10 +525,10 @@ async def fetch_arbeitsagentur(
     # caller's own term walks deeper with whatever budget is left.
     share = max(_AA_PAGE_SIZE, -(-limit // max(1, len(terms))))
     await asyncio.gather(*(
-        _walk({**base, "was": t}, share, str(t)) for t in terms
+        _walk({**base, **({"was": t} if t else {})}, share, str(t)) for t in terms
     ))
     if len(results) < limit and terms:
-        await _walk({**base, "was": terms[0]}, limit - len(results), str(terms[0]))
+        await _walk({**base, **({"was": terms[0]} if terms[0] else {})}, limit - len(results), str(terms[0]))
 
     # Rank before capping: the variants are fetched in parallel, so insertion order is
     # arbitrary interleaving — cutting by it would drop good matches at random. Ranking here

@@ -15,7 +15,7 @@ services:
       # only someone who knows the full URL can reach the server.
       - key: MCP_HTTP_PATH
         value: /mcp-CHANGE-ME-9f3a2b/
-      # Residential proxies — REQUIRED for reliable LinkedIn/Glassdoor/Indeed from the cloud.
+      # Optional authorized network route; inaccessible sources remain explicit gaps.
       # Format: user:pass@host:port,user:pass@host:port   (set as a secret in the dashboard)
       - key: JOBSPY_PROXIES
         sync: false
