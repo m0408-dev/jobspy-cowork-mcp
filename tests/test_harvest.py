@@ -93,6 +93,10 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(sum(t is not None and t['kind']=='board' for t in claimed),1)
 
 class ParserTests(unittest.IsolatedAsyncioTestCase):
+    async def test_generic_news_feed_is_not_a_job(self):
+        text='<rss><channel><item><title>How to find a job</title><link>https://example.com/blog/job-tips</link></item><item><title>Nurse</title><link>https://example.com/jobs/123</link></item></channel></rss>'
+        jobs,_=xml_content(text,'https://example.com/rss','test')
+        self.assertEqual([j['title'] for j in jobs],['Nurse'])
     async def test_private_urls_rejected(self):
         for url in ['http://127.0.0.1/jobs','http://169.254.169.254/','http://[::1]/','file:///etc/passwd','https://user:pass@example.com']:
             with self.assertRaises(ValueError):await public_url(url)

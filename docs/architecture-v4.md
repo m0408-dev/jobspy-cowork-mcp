@@ -16,6 +16,31 @@ also produced 216 host-browser tasks for three queries, whether the automatic
 source had succeeded or not. Results expired after six hours. Existing tests
 verified those contracts rather than durable collection.
 
+## Acceptance observations
+
+* V4 local six-source run, two-page budget: 1,131 URL/identity-deduplicated records
+  after about 70 seconds. Counts are advertisements, not verified unique vacancies
+  across different boards or personally suitable jobs.
+* V4 Oracle HTTP run, all 72 Germany sources, one-step budget: 400 records visible
+  at the first poll (21 seconds), 509 stored records total. Indeed, LinkedIn, AA
+  and Arbeitnow returned cards. 49 tasks reached the deliberately small budget;
+  23 remained recovery gaps. This is not a completed crawl of those boards.
+* Independent generic-public-crawler experiment with Jobware, Greenjobs, Heise and
+  GermanTechJobs, eight-step budget: Greenjobs yielded five real JSON-LD listings
+  including descriptions; Heise was robots-denied; the other two reached budget
+  without yielding jobs. Generic HTML support is therefore useful, not universal.
+* Ten matching-card responses measured approximately 4.1–4.2k characters. Raw HTML
+  and full descriptions were not returned in those responses.
+* A real empty-query AA request initially returned HTTP 400 when `was=` was sent.
+  Omitting `was` returned 100 cards and a continuation cursor; a regression test
+  now verifies that distinction.
+
+The first Oracle candidate and production container passed the real MCP HTTP
+probe (nine tools, structured content, paged retrieval, Unicode, full-text search,
+and description retrieval). Rollback containers and the existing data volume are
+retained. Unit tests separately exercise lease expiry, stale-worker rejection,
+idempotent start/import, atomic progress, retry delays, pause/resume and recovery.
+
 ## Research and decisions
 
 * [MCP tools](https://modelcontextprotocol.io/specification/2025-11-25/server/tools):

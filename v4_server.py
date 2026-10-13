@@ -170,7 +170,7 @@ def list_job_sources(market:Literal['germany','international','worldwide']='germ
     """Source registry with actual retrieval methods. Catalog membership is not evidence of working coverage. Public crawls use JSON-LD, RSS, sitemaps and recognized employer APIs."""
     rows=select_sources(market);end=min(offset+20,len(rows))
     return {'version':VERSION,'market':market,'total':len(rows),
-            'sources':[{'id':r['id'],'url':r['url'],'method':'api' if r['id'] in _FETCHERS else 'jobspy' if r['id'] in BOARDS else 'public_crawl'} for r in rows[offset:end]],
+            'sources':[{'id':r['id'],'name':r['name'],'url':r['url'],'method':'api' if r['id'] in _FETCHERS else 'jobspy' if r['id'] in BOARDS else 'public_crawl'} for r in rows[offset:end]],
             'next_offset':end if end<len(rows) else None}
 
 from middleware import RateLimit

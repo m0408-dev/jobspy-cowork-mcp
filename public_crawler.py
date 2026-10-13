@@ -131,6 +131,9 @@ def xml_content(text,url,source):
         fields={tag(n):''.join(n.itertext()).strip() for n in item}
         link=fields.get('link') or next((n.get('href') for n in item if tag(n)=='link'),None)
         if not fields.get('title') or not link:continue
+        path=urlsplit(urljoin(url,link)).path
+        # A site's blog/news RSS is not a jobs feed merely because the site has careers.
+        if not JOB_LINK.search(path) or re.search(r'/(blog|news|articles?|ratgeber)(/|$)',path,re.I):continue
         jobs.append({'title':fields['title'],'job_url':urljoin(url,link),'source':source,
                      'description':_strip_html(fields.get('description') or fields.get('content') or fields.get('summary')),
                      'date_posted':fields.get('pubDate') or fields.get('published'),
@@ -161,9 +164,9 @@ async def crawl_page(source,payload):
             await asyncio.sleep(max(1,delay))
             text,final=await download(client,target)
             if re.search(r'<(?:\w+:)?(?:urlset|sitemapindex|rss|feed)[\s>]',text[:1500],re.I):
-                jobs,links=xml_content(text,final,source)
+                jobs,links=await asyncio.to_thread(xml_content,text,final,source)
             else:
-                jobs,soup=structured_jobs(text,final,source)
+                jobs,soup=await asyncio.to_thread(structured_jobs,text,final,source)
                 links=[urljoin(final,a['href']) for a in soup.select('a[href]')
                        if JOB_LINK.search(a['href']) or employer_from_url(urljoin(final,a['href']))]
                 links.extend(urljoin(final,a['href']) for a in soup.select('link[rel="alternate"][href]')

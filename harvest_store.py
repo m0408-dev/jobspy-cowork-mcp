@@ -191,7 +191,7 @@ class HarvestStore:
         jobs, size = [], 0
         for row in rows:
             body=json.loads(row['body'])
-            card={k:body.get(k) for k in ('id','title','company','location','date_posted','job_url','sources') if body.get(k) is not None}
+            card={k:body.get(k) for k in ('id','title','company','location','date_posted','job_url','sources','evidence_origin') if body.get(k) is not None}
             card={k:(v[:1200] if isinstance(v,str) else v) for k,v in card.items()}
             card.update(description_available=bool(body.get('description')),last_seen=row['last_seen'])
             cost=len(dumps(card))
