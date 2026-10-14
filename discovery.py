@@ -20,12 +20,24 @@ async def employer_jobs(provider, employer, region="eu"):
         raise ValueError("Expected employer slug, not URL")
     urls = {"greenhouse": f"https://boards-api.greenhouse.io/v1/boards/{employer}/jobs?content=true",
             "lever": f"https://api{'.eu' if region == 'eu' else ''}.lever.co/v0/postings/{employer}?mode=json",
-            "personio": f"https://{employer}.jobs.personio.de/xml?language=de"}
+            "personio": f"https://{employer}.jobs.personio.de/xml?language=de",
+            "ashby": f"https://api.ashbyhq.com/posting-api/job-board/{employer}"}
     async with CachedClient(timeout=30, follow_redirects=False) as client:
         r = await client.get(urls[provider])
         r.raise_for_status()
     out = []
-    if provider == "personio":
+    if provider == "ashby":
+        data = r.json()
+        if not isinstance(data,dict) or not isinstance(data.get('jobs'),list):
+            raise ValueError('schema_mismatch: Ashby jobs array missing')
+        for j in data['jobs']:
+            if j.get('isListed') is False:continue
+            out.append({'title':j.get('title'),'company':employer,'location':j.get('location'),
+                'description':j.get('descriptionPlain') or _strip_html(j.get('descriptionHtml')),
+                'date_posted':j.get('publishedAt'),'is_remote':j.get('isRemote'),
+                'workplace_type':j.get('workplaceType'),'job_type':j.get('employmentType'),
+                'job_url':j.get('jobUrl'),'application_url':j.get('applyUrl')})
+    elif provider == "personio":
         for node in parse_xml(r.text).findall(".//position"):
             job_id = node.findtext("id")
             if not job_id or not job_id.isdigit():
@@ -47,7 +59,8 @@ async def employer_jobs(provider, employer, region="eu"):
                 "job_type": categories.get("commitment"), "description": desc,
                 "job_url": j.get("hostedUrl"), "application_url": j.get("applyUrl"), "salary": j.get("salaryRange")})
     for job in out:
-        job.update(source=provider, is_remote=None)
+        job.update(source=provider)
+        job.setdefault('is_remote',None)
     return out
 
 
@@ -83,3 +96,30 @@ def register_tools(mcp, snapshot, read):
             return await asyncio.to_thread(snapshot, [], {"per_source":{"discovery":{"error":safe_error(exc)}},
                 "queries_used":[query+suffix],"market":market,
                 "coverage":"discovery_failed; execute browser handoff"})
+
+
+async def employer_page(provider, employer, region='global', cursor=0):
+    if provider != 'smartrecruiters':
+        return await employer_jobs(provider,employer,region),None
+    if not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9-]{0,79}',employer):
+        raise ValueError('Expected employer slug')
+    async with CachedClient(timeout=30,follow_redirects=False) as client:
+        r=await client.get(f'https://api.smartrecruiters.com/v1/companies/{employer}/postings',params={'limit':100,'offset':cursor})
+        r.raise_for_status()
+    data=r.json()
+    if not isinstance(data,dict) or not isinstance(data.get('content'),list) or not isinstance(data.get('totalFound'),int):
+        raise ValueError('schema_mismatch: SmartRecruiters content/totalFound missing')
+    jobs=[]
+    for j in data['content']:
+        loc=j.get('location') or {}
+        job_id=j.get('id')
+        if not job_id:raise ValueError('schema_mismatch: posting id missing')
+        jobs.append({'title':j.get('name'),'company':(j.get('company') or {}).get('name',employer),
+            'location':', '.join(str(loc[k]) for k in ('city','region','country') if loc.get(k)),
+            'is_remote':loc.get('remote'),'date_posted':j.get('releasedDate'),
+            'job_url':f'https://jobs.smartrecruiters.com/{employer}/{job_id}',
+            'source':'smartrecruiters','description':None})
+    next_cursor=cursor+len(jobs)
+    if not jobs and cursor<data['totalFound']:
+        raise ValueError('unverified_empty_page_before_total')
+    return jobs,next_cursor if next_cursor<data['totalFound'] else None

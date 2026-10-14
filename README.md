@@ -1,4 +1,4 @@
-# Job Collector MCP v4
+# Job Collector MCP v4.1
 
 The default container now runs `v4_server.py`: persistent background collection,
 nine compact MCP tools, page-by-page commits, automatic cursor continuation,
@@ -6,11 +6,31 @@ bounded retries, public structured-data fallback and explicit recovery tasks.
 The old `server.py` remains available as a separate v3 compatibility entry point.
 Reconnect existing MCP clients after upgrading so their tool schemas refresh.
 
+## v4.1 quality and access
+
+The default search matches any query word prefix; `match_mode="all_words"` opts
+into exact-word conjunction. This deliberately favors recall over precision.
+There is no automatic synonym expansion: supply variants or use `query=""`.
+Remote evidence, expiry, missing text and possible duplicates are labeled; none
+of these labels silently removes candidates. Identical company/title/location
+is only a duplicate hint, never sufficient reason to merge different URLs.
+
+Five explicit employer adapters: Greenhouse, Lever, Personio, Ashby and
+SmartRecruiters (durable pagination). Ashby is also recognized in public links.
+Collection and filtering do not call an LLM. Recovery requires a host with browser
+or search capabilities; MCP alone cannot give a client those capabilities.
+
+HTTP `/mcp/` requires a bearer credential. Searches and stored job bodies are
+isolated by authenticated user; each user has at most five active searches by
+default. Existing private owner URLs remain owner credentials: do not share them.
+See [operations and acceptance](docs/operations-v41.md) for issuing/revoking keys,
+backups, verification scope and client compatibility limits.
+
 ## v4 quick start
 
 ```sh
 uv sync --frozen --python 3.11
-uv run --python 3.11 python v4_server.py
+MCP_AUTH_TOKEN="<operator-secret>" uv run --python 3.11 python v4_server.py
 # Local MCP client:
 MCP_TRANSPORT=stdio uv run --python 3.11 python v4_server.py
 # Unit and MCP contract tests:

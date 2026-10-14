@@ -6,7 +6,7 @@ import time
 from urllib.parse import urlsplit
 
 from catalog import select_sources
-from discovery import employer_jobs
+from discovery import employer_page
 from http_cache import CachedClient
 from public_crawler import crawl_page
 from sources import _FETCHERS, safe_error
@@ -36,9 +36,11 @@ def plan(config):
         provider,slug=employer['provider'],employer['slug']
         url={'greenhouse':f'https://boards.greenhouse.io/{slug}',
              'lever':f'https://jobs.{"eu." if employer["region"]=="eu" else ""}lever.co/{slug}',
+             'ashby':f'https://jobs.ashbyhq.com/{slug}',
+             'smartrecruiters':f'https://jobs.smartrecruiters.com/{slug}',
              'personio':f'https://{slug}.jobs.personio.de'}[provider]
         tasks.append({'source':f'{provider}:{slug}','query':'','kind':'employer',
-                      'payload':{**employer,'url':url,'page_limit':1}})
+                      'payload':{**employer,'url':url,'page_limit':config['page_limit'],'cursor':0}})
     if not tasks:raise ValueError('Select at least one source or employer')
     return tasks
 
@@ -65,8 +67,9 @@ async def fetch_task(task):
                 return [],payload,True,None,False
             raise
     if kind=='employer':
-        jobs=await employer_jobs(payload['provider'],payload['slug'],payload['region'])
-        return jobs,payload,False,None,True
+        jobs,next_cursor=await employer_page(payload['provider'],payload['slug'],payload['region'],payload.get('cursor',0))
+        if next_cursor is not None:payload['cursor']=next_cursor
+        return jobs,payload,next_cursor is not None,None,next_cursor is None
     cursor=payload.get('cursor',0)
     if kind=='api':
         async with CachedClient(timeout=12,follow_redirects=True) as client:
