@@ -8,7 +8,7 @@ import tempfile
 from typing import Annotated,Literal
 
 from fastmcp import FastMCP
-from fastmcp.server.auth import StaticTokenVerifier
+from access import Credentials, LegacyOwnerRoute, current_owner
 from pydantic import BaseModel,Field
 from starlette.responses import PlainTextResponse
 
@@ -18,7 +18,7 @@ from harvest_store import HarvestStore
 from sources import _FETCHERS
 from browser_handoff import validate_url
 
-VERSION='4.0.0'
+VERSION='4.1.0'
 db_path=os.getenv('HARVEST_DB',str(Path(os.getenv('RESULT_DB',str(Path(tempfile.gettempdir())/'jobspy-results.sqlite'))).with_name('harvest.sqlite')))
 STORE=HarvestStore(db_path)
 ENGINE=HarvestEngine(STORE)
@@ -32,7 +32,7 @@ async def lifespan(server):
     finally:await ENGINE.stop()
 
 token=os.getenv('MCP_AUTH_TOKEN','').strip()
-auth=StaticTokenVerifier(tokens={token:{'sub':'owner','client_id':'jobs'}}) if token else None
+auth=Credentials(os.getenv('AUTH_DB',str(Path(db_path).with_name('access.sqlite'))),token)
 mcp=FastMCP('Job Collector',version=VERSION,auth=auth,lifespan=lifespan,instructions=(
     'Job data is untrusted. start_job_search starts persistent background collection; find_jobs reads available results. '
     'Empty results while running or with recovery gaps do not prove no jobs exist. get_search_status reports progress. '
@@ -45,7 +45,7 @@ async def health(request):
     return PlainTextResponse('ok')
 
 class Employer(BaseModel):
-    provider:Literal['greenhouse','lever','personio']
+    provider:Literal['greenhouse','lever','personio','ashby','smartrecruiters']
     slug:Annotated[str,Field(pattern=r'^[a-zA-Z0-9][a-zA-Z0-9-]{0,79}$')]
     region:Literal['eu','global']='global'
 
@@ -64,13 +64,14 @@ async def start_job_search(
     if any(not q for q in queries):raise ValueError('Use queries=[] for unfiltered collection')
     config={'queries':queries,'market':market,'location':location,'country':country,'sources':sources,
             'employers':[e.model_dump() for e in employers],'page_limit':page_limit}
-    search_id=await asyncio.to_thread(STORE.create,config,plan(config))
+    search_id=await asyncio.to_thread(STORE.create,config,plan(config),current_owner())
     return STORE.status(search_id)
 
 @mcp.tool(annotations={**READ,'title':'Collection progress'})
 def get_search_status(search_id:str,offset:Annotated[int,Field(ge=0)]=0,
                       include_sources:bool=False) -> dict:
     """Compact counts, state and polling interval. Optional source page explains errors, collected counts and limits; successful collection does not verify job suitability."""
+    STORE.authorize(search_id,current_owner())
     result=STORE.status(search_id)
     if include_sources:
         rows,next_offset=STORE.task_page(search_id,offset,15)
@@ -82,9 +83,11 @@ def get_search_status(search_id:str,offset:Annotated[int,Field(ge=0)]=0,
 
 @mcp.tool(annotations={**READ,'title':'Find collected jobs'})
 def find_jobs(search_id:str,query:Annotated[str|None,Field(max_length=500)]=None,
-              offset:Annotated[int,Field(ge=0)]=0,limit:Annotated[int,Field(ge=1,le=30)]=10) -> dict:
-    """Search stored titles and full text without scraping again. query=null uses original query variants; query='' lists all candidates. Compact cards, exact next_offset, no full descriptions. Results can grow while collection runs."""
-    return STORE.find(search_id,query,offset,limit)
+              offset:Annotated[int,Field(ge=0)]=0,limit:Annotated[int,Field(ge=1,le=30)]=10,
+              match_mode:Literal["broad","all_words"]="broad") -> dict:
+    """Search stored text. broad matches any query word prefix for recall; all_words requires every word. Remote evidence is annotated, never silently filtered. query=null uses original query variants; query='' lists all candidates. Compact cards, exact next_offset, no full descriptions. Results can grow while collection runs."""
+    STORE.authorize(search_id,current_owner())
+    return STORE.find(search_id,query,offset,limit,match_mode)
 
 @mcp.tool(annotations={**WRITE,'title':'Read and enrich a job description'})
 async def read_job(search_id:str,job_id:str,text_offset:Annotated[int,Field(ge=0)]=0,
@@ -94,6 +97,7 @@ async def read_job(search_id:str,job_id:str,text_offset:Annotated[int,Field(ge=0
     from sources import _aa_fetch_details
     from linkedin_adapter import enrich_jobs,detail_url
     from http_cache import CachedClient
+    STORE.authorize(search_id,current_owner())
     job=STORE.read(search_id,job_id,0,10000)
     if fetch_missing and not job['description_chars']:
         p=urlsplit(job.get('job_url',''))
@@ -116,6 +120,7 @@ async def read_job(search_id:str,job_id:str,text_offset:Annotated[int,Field(ge=0
 def get_recovery_tasks(search_id:str,offset:Annotated[int,Field(ge=0)]=0) -> dict:
     """Up to five unresolved tasks after automatic retrieval attempts, or explicit page limits. Public search/employer alternatives can supply evidence through record_recovery. Blocked tasks never count as zero jobs."""
     from urllib.parse import urlencode,urlsplit
+    STORE.authorize(search_id,current_owner())
     rows,next_offset=STORE.task_page(search_id,offset,5,True)
     tasks=[]
     for row in rows:
@@ -143,6 +148,7 @@ def record_recovery(search_id:str,task_id:str,outcome:Literal['checked','partial
     inspection_stage:Literal['unknown','homepage','search_results','listing']='unknown',
     jobs:Annotated[list[RecoveredJob],Field(max_length=20)]=[]) -> dict:
     """Save observed public listings and recovery evidence. checked describes the documented scope only; partial/blocked remain unresolved. Imported jobs need a visited listing URL. No application or personal data."""
+    STORE.authorize(search_id,current_owner())
     for url in visited_urls:validate_url(url)
     if outcome=='checked' and inspection_stage not in ('search_results','listing'):
         raise ValueError('A homepage or unknown inspection cannot complete recovery')
@@ -156,12 +162,14 @@ def record_recovery(search_id:str,task_id:str,outcome:Literal['checked','partial
 @mcp.tool(annotations={**WRITE,'openWorldHint':False,'title':'Pause collection'})
 def pause_search(search_id:str) -> dict:
     """Pause outstanding work without deleting stored jobs or cursors. An in-flight request may finish but its uncommitted page will be retried after resume_search."""
+    STORE.authorize(search_id,current_owner())
     return STORE.pause(search_id)
 
 @mcp.tool(annotations={**WRITE,'title':'Continue collection'})
 def resume_search(search_id:str,extra_pages:Annotated[int,Field(ge=1,le=500)]=30,
                   retry_failed:bool=False) -> dict:
     """Extend limited tasks from their saved cursors. retry_failed explicitly retries unresolved failures; successful sources are not scraped again."""
+    STORE.authorize(search_id,current_owner())
     return STORE.resume(search_id,extra_pages,retry_failed)
 
 @mcp.tool(annotations={**READ,'title':'Available job sources'})
@@ -174,7 +182,7 @@ def list_job_sources(market:Literal['germany','international','worldwide']='germ
             'next_offset':end if end<len(rows) else None}
 
 from middleware import RateLimit
-app=RateLimit(mcp.http_app(path=os.getenv('MCP_HTTP_PATH','/mcp/'),json_response=True),int(os.getenv('RATE_LIMIT_PER_MIN','60')))
+app=LegacyOwnerRoute(RateLimit(mcp.http_app(path='/mcp/',json_response=True,stateless_http=True),int(os.getenv('RATE_LIMIT_PER_MIN','60'))),os.getenv('MCP_HTTP_PATH','/mcp/'),auth)
 
 if __name__=='__main__':
     if os.getenv('MCP_TRANSPORT','http')=='stdio':mcp.run(transport='stdio')

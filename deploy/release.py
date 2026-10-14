@@ -81,6 +81,12 @@ def release(image, revision):
         wait_healthy(candidate)
         print(docker("exec",candidate,"python","-c",PROTOCOL))
         print("Candidate healthy; switching with retained rollback",flush=True)
+        # SQLite backup API captures a consistent database including WAL commits.
+        print(docker("exec","jobspy","python","-c",
+            "import sqlite3,time; from pathlib import Path; "
+            "p=Path('/app/data/harvest.sqlite'); "
+            "src=sqlite3.connect(str(p)); dst=sqlite3.connect(str(p)+'.backup-'+str(int(time.time()))); "
+            "src.backup(dst); dst.close(); src.close(); print('Database backup complete')"))
         docker("stop","-t","30","jobspy")
         stopped = True
         docker("rename","jobspy",backup)

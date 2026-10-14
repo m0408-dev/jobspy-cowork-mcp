@@ -28,6 +28,8 @@ def employer_from_url(url):
         return ('greenhouse',parts[0],'global')
     if host in ('jobs.lever.co','jobs.eu.lever.co') and parts[0]:
         return ('lever',parts[0],'eu' if '.eu.' in host else 'global')
+    if host == 'jobs.ashbyhq.com' and parts[0]:
+        return ('ashby',parts[0],'global')
     if host.endswith('.jobs.personio.de'):
         return ('personio',host.split('.')[0],'eu')
     return None

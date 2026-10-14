@@ -45,6 +45,12 @@ class HarvestStore:
                     task_id TEXT NOT NULL, fingerprint TEXT NOT NULL,
                     PRIMARY KEY(task_id,fingerprint));
             ''')
+            if 'owner' not in {r[1] for r in db.execute('PRAGMA table_info(runs)')}:
+                db.execute("ALTER TABLE runs ADD COLUMN owner TEXT NOT NULL DEFAULT 'owner'")
+
+    def authorize(self, run_id, owner):
+        if self.run(run_id)['owner'] != owner:
+            raise ValueError('Unknown search_id')
 
     @contextmanager
     def connect(self):
@@ -56,17 +62,20 @@ class HarvestStore:
         finally:
             db.close()
 
-    def create(self, config, tasks):
+    def create(self, config, tasks, owner='owner'):
         run_id = secrets.token_urlsafe(24)
         now = time.time()
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
             # Safe retries of a start call reuse a still-active equivalent run.
-            previous=db.execute('''SELECT r.id FROM runs r WHERE r.config=? AND EXISTS
+            previous=db.execute('''SELECT r.id FROM runs r WHERE r.config=? AND r.owner=? AND EXISTS
                 (SELECT 1 FROM tasks t WHERE t.run_id=r.id AND t.status IN ('queued','running'))
-                ORDER BY r.created DESC LIMIT 1''',(dumps(config),)).fetchone()
+                ORDER BY r.created DESC LIMIT 1''',(dumps(config),owner)).fetchone()
             if previous:return previous['id']
-            db.execute('INSERT INTO runs VALUES (?,?,?)', (run_id, now, dumps(config)))
+            active=db.execute("SELECT COUNT(DISTINCT r.id) FROM runs r JOIN tasks t ON t.run_id=r.id WHERE r.owner=? AND t.status IN ('queued','running')",(owner,)).fetchone()[0]
+            if active >= int(os.getenv('MAX_ACTIVE_SEARCHES_PER_USER','5')):
+                raise ValueError('Active search quota reached; pause an existing search first')
+            db.execute('INSERT INTO runs(id,created,config,owner) VALUES (?,?,?,?)', (run_id, now, dumps(config), owner))
             for task in tasks:
                 db.execute('''INSERT INTO tasks(id,run_id,source,query,kind,payload,updated)
                     VALUES (?,?,?,?,?,?,?)''', (secrets.token_hex(12), run_id, task['source'],
@@ -99,14 +108,15 @@ class HarvestStore:
 
     def _save_jobs(self, db, run_id, jobs):
         now = time.time()
+        owner = db.execute('SELECT owner FROM runs WHERE id=?',(run_id,)).fetchone()[0]
         for item in jobs:
             if not isinstance(item.get('title'),str) or not item['title'].strip() or not isinstance(item.get('job_url'),str) or not item['job_url']:
                 continue
-            job_id = hashlib.sha256(dumps(_dedup_key(item)).encode()).hexdigest()[:32]
+            job_id = hashlib.sha256(((owner+'\0' if owner!='owner' else '')+dumps(_dedup_key(item))).encode()).hexdigest()[:32]
             old = db.execute('SELECT body FROM jobs WHERE id=?', (job_id,)).fetchone()
             previous = json.loads(old['body']) if old else {}
             body = {**previous, **{k:v for k,v in item.items() if v is not None and not k.startswith('_')}}
-            if len(previous.get('description') or '') > len(body.get('description') or ''):
+            if not item.get('description') and previous.get('description'):
                 body['description'] = previous['description']
             body['sources'] = sorted(set(previous.get('sources', []) + item.get('sources', []) + [item.get('source', 'unknown')]))
             body['id'] = job_id
@@ -171,11 +181,13 @@ class HarvestStore:
             rows = db.execute('SELECT * FROM tasks WHERE run_id=?'+clause+' ORDER BY id LIMIT ? OFFSET ?', (run_id,limit+1,offset)).fetchall()
         return rows[:limit], offset+limit if len(rows)>limit else None
 
-    def find(self, run_id, query=None, offset=0, limit=10):
+    def find(self, run_id, query=None, offset=0, limit=10, match_mode="broad"):
         run = self.run(run_id)
         terms = run['config']['queries'] if query is None else ([query] if query else [])
         # Literal words, OR across caller variants. No injected FTS operators.
-        fts = ' OR '.join('('+' AND '.join('"'+w.replace('"','""')+'"' for w in t.split())+')' for t in terms if t.strip())
+        if match_mode not in ('broad','all_words'):raise ValueError('Unknown match_mode')
+        joiner = ' OR ' if match_mode=='broad' else ' AND '
+        fts = ' OR '.join('('+joiner.join('"'+w.replace('"','""')+'"'+('*' if match_mode=='broad' else '') for w in t.split())+')' for t in terms if t.strip())
         args = [run_id]
         base = ' FROM jobs j JOIN run_jobs r ON r.job_id=j.id'
         if fts:
@@ -193,6 +205,8 @@ class HarvestStore:
             body=json.loads(row['body'])
             card={k:body.get(k) for k in ('id','title','company','location','date_posted','job_url','sources','evidence_origin') if body.get(k) is not None}
             card={k:(v[:1200] if isinstance(v,str) else v) for k,v in card.items()}
+            from quality import evidence
+            card.update(evidence(body))
             card.update(description_available=bool(body.get('description')),last_seen=row['last_seen'])
             cost=len(dumps(card))
             if jobs and size+cost>10000:
@@ -200,7 +214,7 @@ class HarvestStore:
             jobs.append(card); size+=cost
         end=offset+len(jobs)
         return {'search_id':run_id,'matching_jobs':total,'jobs':jobs,'next_offset':end if end<total else None,
-                'filter':terms,'search_status':self.status(run_id)['status'],
+                'filter':terms,'match_mode':match_mode,'search_status':self.status(run_id)['status'],
                 'note':'Searches collected text. Missing descriptions may hide matches. query="" returns all collected cards.'}
 
     def read(self, run_id, job_id, offset=0, chars=5000):
@@ -210,7 +224,8 @@ class HarvestStore:
         if not row:
             raise ValueError('Unknown job_id in this search')
         body=json.loads(row['body']); description=body.pop('description',None) or ''
-        return {**body,'description':description[offset:offset+chars],'description_chars':len(description),
+        from quality import evidence
+        return {**body,**evidence({**body,'description':description}),'description':description[offset:offset+chars],'description_chars':len(description),
                 'next_text_offset':offset+chars if offset+chars<len(description) else None,
                 'first_seen':row['first_seen'],'last_seen':row['last_seen']}
 
@@ -221,9 +236,12 @@ class HarvestStore:
             self._save_jobs(db,run_id,[job])
 
     def resume(self, run_id, extra_pages=30, retry_failed=False):
-        self.run(run_id)
+        run=self.run(run_id)
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
+            active=db.execute("SELECT COUNT(DISTINCT r.id) FROM runs r JOIN tasks t ON t.run_id=r.id WHERE r.owner=? AND r.id!=? AND t.status IN ('queued','running')",(run['owner'],run_id)).fetchone()[0]
+            if active >= int(os.getenv('MAX_ACTIVE_SEARCHES_PER_USER','5')):
+                raise ValueError('Active search quota reached; pause an existing search first')
             statuses=['limited','paused']+(['needs_recovery'] if retry_failed else [])
             for row in db.execute('SELECT * FROM tasks WHERE run_id=?',(run_id,)).fetchall():
                 if row['status'] not in statuses:
