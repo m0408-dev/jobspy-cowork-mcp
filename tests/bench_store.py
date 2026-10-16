@@ -8,7 +8,8 @@ from harvest_store import HarvestStore
 
 with tempfile.TemporaryDirectory() as tmp:
     target=Path(tmp)/'bench.sqlite'
-    source=sqlite3.connect('file:/prod/harvest.sqlite?mode=ro',uri=True,timeout=30)
+    # /prod must contain a completed SQLite backup, never the live WAL database.
+    source=sqlite3.connect('file:/prod/harvest.sqlite?mode=ro&immutable=1',uri=True,timeout=30)
     dest=sqlite3.connect(target)
     source.backup(dest); source.close(); dest.close()
     started=time.monotonic(); store=HarvestStore(target)
