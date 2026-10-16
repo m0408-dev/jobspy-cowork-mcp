@@ -18,7 +18,7 @@ from harvest_store import HarvestStore
 from sources import _FETCHERS
 from browser_handoff import validate_url
 
-VERSION='4.1.0'
+VERSION='4.1.1'
 db_path=os.getenv('HARVEST_DB',str(Path(os.getenv('RESULT_DB',str(Path(tempfile.gettempdir())/'jobspy-results.sqlite'))).with_name('harvest.sqlite')))
 STORE=HarvestStore(db_path)
 ENGINE=HarvestEngine(STORE)

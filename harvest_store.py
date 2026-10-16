@@ -47,6 +47,15 @@ class HarvestStore:
             ''')
             if 'owner' not in {r[1] for r in db.execute('PRAGMA table_info(runs)')}:
                 db.execute("ALTER TABLE runs ADD COLUMN owner TEXT NOT NULL DEFAULT 'owner'")
+            # FTS5 UNINDEXED columns cannot serve indexed ID lookups. A DELETE
+            # WHERE id=? otherwise scans every stored description for every job,
+            # holding the single SQLite writer for minutes on large batches.
+            # Rebuild the small locator once at startup, also after an older
+            # release has changed FTS rowids during a rollback. Keep FTS intact.
+            db.execute('BEGIN IMMEDIATE')
+            db.execute('CREATE TABLE IF NOT EXISTS job_text_rows (id TEXT PRIMARY KEY, fts_rowid INTEGER NOT NULL UNIQUE)')
+            db.execute('DELETE FROM job_text_rows')
+            db.execute('INSERT INTO job_text_rows SELECT id,rowid FROM job_text')
 
     def authorize(self, run_id, owner):
         if self.run(run_id)['owner'] != owner:
@@ -123,9 +132,16 @@ class HarvestStore:
             db.execute('''INSERT INTO jobs VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE
                 SET body=excluded.body,last_seen=excluded.last_seen''', (job_id,dumps(body),now,now))
             db.execute('INSERT OR IGNORE INTO run_jobs(run_id,job_id) VALUES (?,?)', (run_id,job_id))
-            db.execute('DELETE FROM job_text WHERE id=?', (job_id,))
-            db.execute('INSERT INTO job_text VALUES (?,?,?,?,?)',
-                       (job_id, *(str(body.get(k) or '') for k in ('title','company','location','description'))))
+            locator=db.execute('SELECT fts_rowid FROM job_text_rows WHERE id=?',(job_id,)).fetchone()
+            values=(job_id, *(str(body.get(k) or '') for k in ('title','company','location','description')))
+            if locator:
+                rowid=locator['fts_rowid']
+                db.execute('DELETE FROM job_text WHERE rowid=?',(rowid,))
+                db.execute('INSERT INTO job_text(rowid,id,title,company,location,description) VALUES (?,?,?,?,?,?)',
+                           (rowid,*values))
+            else:
+                cursor=db.execute('INSERT INTO job_text VALUES (?,?,?,?,?)',values)
+                db.execute('INSERT INTO job_text_rows VALUES (?,?)',(job_id,cursor.lastrowid))
 
     def finish(self, task, jobs, payload, *, more=False, error=None, verified_end=False):
         """Atomically commit records AND cursor. A retry cannot lose or duplicate a page."""

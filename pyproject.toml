@@ -1,6 +1,6 @@
 [project]
 name = "jobspy-cowork-mcp"
-version = "4.1.0"
+version = "4.1.1"
 description = "Durable multi-source job collector with compact, host-independent MCP tools."
 requires-python = ">=3.10"
 dependencies = [
