@@ -907,6 +907,18 @@ def merge_jobs(jobs):
 def safe_error(exc):
     if isinstance(exc, httpx.HTTPStatusError):
         return f"HTTP {exc.response.status_code}"
+    # Preserve the actionable reason without exposing URLs, credentials or
+    # arbitrary upstream exception text. TLS verification must stay enabled.
+    import ssl
+    cause = exc
+    seen = set()
+    for _ in range(10):
+        if cause is None or id(cause) in seen:
+            break
+        seen.add(id(cause))
+        if isinstance(cause, ssl.SSLCertVerificationError) or 'CERTIFICATE_VERIFY_FAILED' in str(cause):
+            return 'tls_certificate_verification_failed'
+        cause = cause.__cause__ or cause.__context__
     return type(exc).__name__
 
 

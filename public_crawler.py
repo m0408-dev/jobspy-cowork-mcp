@@ -16,6 +16,7 @@ from bs4 import BeautifulSoup
 import httpx
 from discovery import employer_jobs
 from sources import _strip_html
+from search_routes import listing_url
 
 AGENT='JobCollector/4.0 (+https://github.com/m0408-dev/jobspy-cowork-mcp)'
 JOB_LINK=re.compile(r'job|career|karriere|stellen|vacanc|position|arbeiten|recruit',re.I)
@@ -30,7 +31,7 @@ def employer_from_url(url):
         return ('lever',parts[0],'eu' if '.eu.' in host else 'global')
     if host == 'jobs.ashbyhq.com' and parts[0]:
         return ('ashby',parts[0],'global')
-    if host.endswith('.jobs.personio.de'):
+    if host.endswith(('.jobs.personio.de','.jobs.personio.com')):
         return ('personio',host.split('.')[0],'eu')
     return None
 
@@ -118,6 +119,47 @@ def structured_jobs(text,url,source):
     return jobs,soup
 
 
+def search_cards(soup, url, source):
+    """Known listing links only; snippets are not fabricated full descriptions."""
+    out=[];seen=set()
+    for a in soup.select('a[href]'):
+        link=urljoin(url,a['href']).split('#',1)[0]
+        if not listing_url(link) or link in seen:continue
+        heading=a.find(['h2','h3','h4'])
+        title=(heading or a).get_text(' ',strip=True) or a.get('aria-label','').strip()
+        card=a.find_parent('article')
+        if not title and card:
+            heading=card.find(['h2','h3','h4'])
+            if heading:title=heading.get_text(' ',strip=True)
+        if not title or len(title)>300 or title.lower() in ('mehr','details','job ansehen','ansehen'):continue
+        seen.add(link)
+        company=card.select_one('[class*="Company"]') if card else None
+        out.append({'source':source,'title':title,'job_url':link,
+                    'company':company.get_text(' ',strip=True) if company else None,
+                    'evidence_origin':'board_listing_card','description':None})
+    return out
+
+
+def discover_search(soup, url, queries):
+    """Only observed same-origin GET forms; never submit POST/login forms."""
+    links=[]
+    for form in soup.select('form'):
+        if form.get('method','get').lower()!='get':continue
+        action=urljoin(url,form.get('action') or url)
+        if urlsplit(action).netloc!=urlsplit(url).netloc:continue
+        fields=form.select('input[name]')
+        search=next((f for f in fields if f.get('type')=='search' or f.get('name','').lower() in ('q','query','keywords','search','searchterm','what')),None)
+        if search is None:continue
+        if any(f.get('type')=='password' for f in fields):continue
+        from urllib.parse import urlencode,parse_qsl,urlunsplit
+        p=urlsplit(action)
+        base=dict(parse_qsl(p.query))
+        for q in queries or ['']:
+            params={**base,search['name']:q}
+            links.append(urlunsplit((p.scheme,p.netloc,p.path,urlencode(params),'')))
+    return list(dict.fromkeys(links))
+
+
 def xml_content(text,url,source):
     if re.search(r'<!\s*(DOCTYPE|ENTITY)',text,re.I):
         raise ValueError('unsupported_xml_entities')
@@ -146,7 +188,7 @@ def xml_content(text,url,source):
 async def crawl_page(source,payload):
     """One durable frontier step. Index pages are never treated as zero-job proof."""
     payload=dict(payload)
-    frontier=list(payload.get('frontier') or [payload['url']])
+    frontier=list(payload.get('frontier') or [payload.get('search_url') or payload['url']])
     visited=list(payload.get('visited',[]))
     target=frontier.pop(0)
     known=set(visited+frontier+[target])
@@ -169,11 +211,31 @@ async def crawl_page(source,payload):
                 jobs,links=await asyncio.to_thread(xml_content,text,final,source)
             else:
                 jobs,soup=await asyncio.to_thread(structured_jobs,text,final,source)
+                cards=search_cards(soup,final,source)
+                known_jobs={j['job_url'] for j in jobs}
+                jobs.extend(j for j in cards if j['job_url'] not in known_jobs)
+                search_links=discover_search(soup,final,payload.get('queries',[])) if payload.get('discovery_only') else []
                 links=[urljoin(final,a['href']) for a in soup.select('a[href]')
                        if JOB_LINK.search(a['href']) or employer_from_url(urljoin(final,a['href']))]
+                if payload.get('discovery_only'):
+                    if not search_links:
+                        payload.update(last_url=final,coverage='search_adapter_missing',frontier=[],visited=visited)
+                        # Preserve any real listings found, but never count a homepage as searched.
+                        payload['failed_urls']=[{'url':final,'error':'search_adapter_missing'}]
+                        return jobs,payload,False
+                    links=search_links
+                    payload.update(discovery_only=False,coverage='discovered_search_window')
+                elif payload.get('search_url') or payload.get('coverage')=='discovered_search_window':
+                    # Follow actual listings and pagination, not related occupations/location SEO trees.
+                    links=[urljoin(final,a['href']) for a in soup.select('a[href]') if
+                           listing_url(urljoin(final,a['href'])) or employer_from_url(urljoin(final,a['href'])) or
+                           'next' in a.get('rel',[]) or a.get_text(strip=True).isdigit() or
+                           re.search(r'next|nächste|weiter',a.get('aria-label','')+' '+a.get_text(' ',strip=True),re.I)]
+                    if not jobs and not links:
+                        payload['failed_urls']=(payload.get('failed_urls',[])+[{'url':final,'error':'search_or_detail_unparsed'}])[-10:]
                 links.extend(urljoin(final,a['href']) for a in soup.select('link[rel="alternate"][href]')
                              if 'rss' in a.get('type','') or 'atom' in a.get('type',''))
-                if len(visited)==1:
+                if len(visited)==1 and not payload.get('search_url') and not payload.get('queries'):
                     links.extend(policy.site_maps() or [urljoin(final,'/sitemap.xml')])
     host=(urlsplit(payload['url']).hostname or '').removeprefix('www.')
     # Bounded crawl frontier; truncation is explicitly visible, never reported as exhaustive.

@@ -9,6 +9,7 @@ import sqlite3
 import time
 
 from sources import _dedup_key
+from content_kind import classify, VERSION as CONTENT_VERSION
 
 
 def dumps(value):
@@ -56,6 +57,13 @@ class HarvestStore:
             db.execute('CREATE TABLE IF NOT EXISTS job_text_rows (id TEXT PRIMARY KEY, fts_rowid INTEGER NOT NULL UNIQUE)')
             db.execute('DELETE FROM job_text_rows')
             db.execute('INSERT INTO job_text_rows SELECT id,rowid FROM job_text')
+            db.execute('CREATE TABLE IF NOT EXISTS job_quality (id TEXT PRIMARY KEY, kind TEXT NOT NULL, reason TEXT NOT NULL, has_description INTEGER NOT NULL, version INTEGER NOT NULL)')
+            if 'indexed_at' not in {r[1] for r in db.execute('PRAGMA table_info(job_quality)')}:
+                db.execute('ALTER TABLE job_quality ADD COLUMN indexed_at REAL NOT NULL DEFAULT 0')
+            # Additive migration; original bodies/IDs remain intact and rollback-compatible.
+            for row in db.execute('SELECT j.id,j.body,j.last_seen FROM jobs j LEFT JOIN job_quality q ON q.id=j.id WHERE q.id IS NULL OR q.version!=? OR q.indexed_at!=j.last_seen',(CONTENT_VERSION,)).fetchall():
+                body=json.loads(row['body']);kind,reason=classify(body)
+                db.execute('INSERT OR REPLACE INTO job_quality VALUES (?,?,?,?,?,?)',(row['id'],kind,reason,int(bool(body.get('description'))),CONTENT_VERSION,row['last_seen']))
 
     def authorize(self, run_id, owner):
         if self.run(run_id)['owner'] != owner:
@@ -132,6 +140,8 @@ class HarvestStore:
             db.execute('''INSERT INTO jobs VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE
                 SET body=excluded.body,last_seen=excluded.last_seen''', (job_id,dumps(body),now,now))
             db.execute('INSERT OR IGNORE INTO run_jobs(run_id,job_id) VALUES (?,?)', (run_id,job_id))
+            kind,reason=classify(body)
+            db.execute('INSERT OR REPLACE INTO job_quality VALUES (?,?,?,?,?,?)',(job_id,kind,reason,int(bool(body.get('description'))),CONTENT_VERSION,now))
             locator=db.execute('SELECT fts_rowid FROM job_text_rows WHERE id=?',(job_id,)).fetchone()
             values=(job_id, *(str(body.get(k) or '') for k in ('title','company','location','description')))
             if locator:
@@ -161,7 +171,7 @@ class HarvestStore:
             status, due = 'done', now + 1
             if error:
                 # Hard barriers go to recovery immediately; transient failures retry automatically.
-                hard = any(s in error.lower() for s in ('403','401','999','captcha','robots_denied','unsupported','unverified','schema'))
+                hard = any(s in error.lower() for s in ('403','401','999','captcha','robots_denied','unsupported','unverified','schema','tls_certificate_verification_failed'))
                 status = 'needs_recovery' if hard or attempts >= 3 else 'queued'
                 due = now + (60 if '429' in error else min(60, 3 ** attempts))
             elif repeated and more:
@@ -181,10 +191,16 @@ class HarvestStore:
             counts = {r['status']:r['n'] for r in db.execute('SELECT status,COUNT(*) n FROM tasks WHERE run_id=? GROUP BY status',(run_id,))}
             jobs = db.execute('SELECT COUNT(*) FROM run_jobs WHERE run_id=?',(run_id,)).fetchone()[0]
             sources = db.execute('SELECT COUNT(DISTINCT source) FROM tasks WHERE run_id=?',(run_id,)).fetchone()[0]
+            quality={r['kind']:r['n'] for r in db.execute('SELECT q.kind,COUNT(*) n FROM run_jobs r JOIN job_quality q ON q.id=r.job_id WHERE r.run_id=? GROUP BY q.kind',(run_id,))}
+            missing=db.execute('SELECT COUNT(*) FROM run_jobs r JOIN job_quality q ON q.id=r.job_id WHERE r.run_id=? AND q.has_description=0',(run_id,)).fetchone()[0]
             updated = db.execute('SELECT MAX(updated) FROM tasks WHERE run_id=?',(run_id,)).fetchone()[0]
         active = counts.get('queued',0)+counts.get('running',0)
         return {'search_id':run_id,'status':'running' if active else 'paused' if counts.get('paused') else 'needs_attention' if counts.get('needs_recovery') or counts.get('limited') else 'finished',
                 'stored_jobs':jobs,'sources':sources,'tasks':counts,'updated_at':updated,
+                'record_types':quality,'missing_descriptions':missing,
+                'coverage_complete':False,
+                'outstanding_tasks':sum(counts.get(s,0) for s in ('queued','running','limited','needs_recovery','paused')),
+                'counts_meaning':'stored_jobs counts raw records, not verified vacancies; done is a completed retrieval window, not entire source coverage',
                 'exhaustive':False,'poll_after_seconds':10 if active else None,
                 'next_action':'find_jobs for available results; get_search_status after poll_after_seconds' if active else 'resume_search to continue paused work' if counts.get('paused') else
                     'get_recovery_tasks for gaps; resume_search for page limits' if counts.get('needs_recovery') or counts.get('limited') else 'find_jobs',
@@ -197,22 +213,31 @@ class HarvestStore:
             rows = db.execute('SELECT * FROM tasks WHERE run_id=?'+clause+' ORDER BY id LIMIT ? OFFSET ?', (run_id,limit+1,offset)).fetchall()
         return rows[:limit], offset+limit if len(rows)>limit else None
 
-    def find(self, run_id, query=None, offset=0, limit=10, match_mode="broad"):
+    def find(self, run_id, query=None, offset=0, limit=10, match_mode="broad", record_view='candidates', required_terms=None):
         run = self.run(run_id)
         terms = run['config']['queries'] if query is None else ([query] if query else [])
         # Literal words, OR across caller variants. No injected FTS operators.
         if match_mode not in ('broad','all_words'):raise ValueError('Unknown match_mode')
         joiner = ' OR ' if match_mode=='broad' else ' AND '
         fts = ' OR '.join('('+joiner.join('"'+w.replace('"','""')+'"'+('*' if match_mode=='broad' else '') for w in t.split())+')' for t in terms if t.strip())
+        required=['"'+t.replace('"','""')+'"' for t in (required_terms or []) if t.strip()]
+        if required:fts=('('+fts+') AND ' if fts else '')+' AND '.join(required)
+        if record_view not in ('candidates','all','non_jobs','missing_descriptions'):raise ValueError('Unknown record_view')
         args = [run_id]
-        base = ' FROM jobs j JOIN run_jobs r ON r.job_id=j.id'
+        base = ' FROM jobs j JOIN run_jobs r ON r.job_id=j.id JOIN job_quality q ON q.id=j.id'
         if fts:
-            base += ' JOIN job_text ON job_text.id=j.id WHERE r.run_id=? AND job_text MATCH ?'
+            # FTS id is UNINDEXED: use its integer row locator for reads too.
+            # Comparing the text id repeatedly scans all matching descriptions.
+            base += ' JOIN job_text_rows x ON x.id=j.id JOIN job_text ON job_text.rowid=x.fts_rowid WHERE r.run_id=? AND job_text MATCH ?'
             args.append(fts)
             order = ' ORDER BY bm25(job_text,0,5,2,1,1),r.seq'
         else:
             base += ' WHERE r.run_id=?'
             order = ' ORDER BY r.seq'
+        if record_view in ('candidates','missing_descriptions'):
+            base += " AND q.kind NOT IN ('job_seeker','directory_promotion')"
+        elif record_view=='non_jobs':base += " AND q.kind IN ('job_seeker','directory_promotion')"
+        if record_view=='missing_descriptions':base += ' AND q.has_description=0'
         with self.connect() as db:
             total = db.execute('SELECT COUNT(*)'+base, args).fetchone()[0]
             rows = db.execute('SELECT j.body,j.first_seen,j.last_seen'+base+order+' LIMIT ? OFFSET ?',[*args,limit,offset]).fetchall()
@@ -223,6 +248,8 @@ class HarvestStore:
             card={k:(v[:1200] if isinstance(v,str) else v) for k,v in card.items()}
             from quality import evidence
             card.update(evidence(body))
+            kind,reason=classify(body)
+            card.update(record_type=kind,record_type_reason=reason)
             card.update(description_available=bool(body.get('description')),last_seen=row['last_seen'])
             cost=len(dumps(card))
             if jobs and size+cost>10000:
@@ -230,8 +257,12 @@ class HarvestStore:
             jobs.append(card); size+=cost
         end=offset+len(jobs)
         return {'search_id':run_id,'matching_jobs':total,'jobs':jobs,'next_offset':end if end<total else None,
+                'collection_market':run['config'].get('market'),
+                'geography_scope':'Market selects sources, not job eligibility. Mixed-country feeds remain unfiltered; inspect each location and residency requirement.',
                 'filter':terms,'match_mode':match_mode,'search_status':self.status(run_id)['status'],
-                'note':'Searches collected text. Missing descriptions may hide matches. query="" returns all collected cards.'}
+                'record_view':record_view,'required_terms':required_terms or [],
+                'coverage_complete':False,
+                'note':'Text matching is not eligibility. Missing descriptions may hide matches: query="", record_view="missing_descriptions" enumerates them. record_view="all" includes non-job records. Limits/gaps require continuation or recovery.'}
 
     def read(self, run_id, job_id, offset=0, chars=5000):
         self.run(run_id)

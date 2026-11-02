@@ -7,9 +7,19 @@ from sources import remote_confidence
 
 def parse_date(value):
     try:
+        if isinstance(value, bool) or value is None:
+            return None
+        # Public feeds (including Arbeitnow) use Unix seconds; others use ms.
+        # Keep the raw field untouched and derive only the evidence timestamp.
+        raw = str(value).strip()
+        if re.fullmatch(r'-?\d{9,16}(?:\.\d+)?', raw):
+            stamp = float(raw)
+            if abs(stamp) >= 100_000_000_000:
+                stamp /= 1000
+            return datetime.fromtimestamp(stamp, tz=timezone.utc)
         parsed = datetime.fromisoformat(str(value).replace('Z', '+00:00'))
         return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError, OSError):
         return None
 
 

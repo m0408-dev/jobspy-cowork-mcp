@@ -10,6 +10,7 @@ from discovery import employer_page
 from http_cache import CachedClient
 from public_crawler import crawl_page
 from sources import _FETCHERS, safe_error
+from search_routes import search_url
 
 log=logging.getLogger(__name__)
 BOARDS={'indeed','linkedin','glassdoor','google','zip_recruiter','bayt','naukri','bdjobs'}
@@ -27,11 +28,16 @@ def plan(config):
         source=row['id']
         kind='api' if source in _FETCHERS else 'board' if source in BOARDS else 'public'
         # Public feeds/crawls enumerate once, regardless of how many query variants were supplied.
-        terms=(config['queries'] or ['']) if source in QUERY_APIS or kind=='board' else ['']
+        routed = kind == 'public' and search_url(row['url'], 'probe') is not None
+        terms=(config['queries'] or ['']) if source in QUERY_APIS or kind=='board' or routed else ['']
         for query in terms:
             tasks.append({'source':source,'query':query,'kind':kind,'payload':{
                 'url':row['url'],'cursor':0,'page_limit':config['page_limit'],
-                'location':config['location'],'country':config['country'],'market':config['market']}})
+                'location':config['location'],'country':config['country'],'market':config['market'],
+                'queries':config['queries'], 'source_name':row['name'],
+                'search_url':search_url(row['url'],query,config['location']) if routed else None,
+                'discovery_only':kind=='public' and not routed,
+                'coverage':'query_search_window' if routed else 'public_discovery' if kind=='public' else 'pending'}})
     for employer in config.get('employers',[]):
         provider,slug=employer['provider'],employer['slug']
         url={'greenhouse':f'https://boards.greenhouse.io/{slug}',
@@ -132,7 +138,11 @@ class HarvestEngine:
         # Its failure remains a gap and cannot turn the original failure into confirmed zero.
         if error and task['kind'] in ('api','board') and not payload.get('fallback') and (
             task['attempts']>=2 or any(x in error.lower() for x in ('403','401','999','unverified','schema'))):
-            payload.update(fallback='public',upstream_error=error,frontier=[payload['url']],visited=[])
+            route=search_url(payload['url'],task['query'],payload.get('location',''))
+            payload.update(fallback='public',upstream_error=error,
+                           frontier=[route or payload['url']],visited=[],
+                           search_url=route,discovery_only=not bool(route),
+                           queries=[task['query']] if task['query'] else payload.get('queries',[]))
             error=None;more=True
         await asyncio.to_thread(self.store.finish,task,jobs,payload,more=more,error=error,verified_end=verified)
         return True

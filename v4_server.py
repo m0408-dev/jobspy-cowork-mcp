@@ -18,7 +18,7 @@ from harvest_store import HarvestStore
 from sources import _FETCHERS
 from browser_handoff import validate_url
 
-VERSION='4.1.1'
+VERSION='4.2.0'
 db_path=os.getenv('HARVEST_DB',str(Path(os.getenv('RESULT_DB',str(Path(tempfile.gettempdir())/'jobspy-results.sqlite'))).with_name('harvest.sqlite')))
 STORE=HarvestStore(db_path)
 ENGINE=HarvestEngine(STORE)
@@ -57,7 +57,7 @@ async def start_job_search(
     country:Annotated[str,Field(max_length=80)]='germany',
     sources:Annotated[list[str]|None,Field(max_length=150)]=None,
     employers:Annotated[list[Employer],Field(max_length=30)]=[],
-    page_limit:Annotated[int,Field(ge=1,le=500)]=30,
+    page_limit:Annotated[int,Field(ge=1,le=500,description='Per-task retrieval budget, not total market coverage. Limited tasks retain cursors for resume_search.')]=30,
 ) -> dict:
     """Start parallel collection and return immediately. Empty queries collect without a profession filter. sources=null selects the market catalog; [] selects only supplied employers. Page limits are resumable. No date/remote filters silently exclude jobs."""
     queries=list(dict.fromkeys(q.strip() for q in queries))
@@ -65,7 +65,7 @@ async def start_job_search(
     config={'queries':queries,'market':market,'location':location,'country':country,'sources':sources,
             'employers':[e.model_dump() for e in employers],'page_limit':page_limit}
     search_id=await asyncio.to_thread(STORE.create,config,plan(config),current_owner())
-    return STORE.status(search_id)
+    return await asyncio.to_thread(STORE.status,search_id)
 
 @mcp.tool(annotations={**READ,'title':'Collection progress'})
 def get_search_status(search_id:str,offset:Annotated[int,Field(ge=0)]=0,
@@ -76,6 +76,8 @@ def get_search_status(search_id:str,offset:Annotated[int,Field(ge=0)]=0,
     if include_sources:
         rows,next_offset=STORE.task_page(search_id,offset,15)
         result.update(sources_page=[{**{k:r[k] for k in ('source','query','status','pages','received','error')},
+            'source_name':json.loads(r['payload']).get('source_name',r['source']),
+            'search_url':json.loads(r['payload']).get('search_url'),
             'coverage':json.loads(r['payload']).get('coverage','public_window'),
             'frontier_remaining':len(json.loads(r['payload']).get('frontier',[])),
             'frontier_truncated':json.loads(r['payload']).get('frontier_truncated',False)} for r in rows],next_offset=next_offset)
@@ -84,10 +86,12 @@ def get_search_status(search_id:str,offset:Annotated[int,Field(ge=0)]=0,
 @mcp.tool(annotations={**READ,'title':'Find collected jobs'})
 def find_jobs(search_id:str,query:Annotated[str|None,Field(max_length=500)]=None,
               offset:Annotated[int,Field(ge=0)]=0,limit:Annotated[int,Field(ge=1,le=30)]=10,
-              match_mode:Literal["broad","all_words"]="broad") -> dict:
-    """Search stored text. broad matches any query word prefix for recall; all_words requires every word. Remote evidence is annotated, never silently filtered. query=null uses original query variants; query='' lists all candidates. Compact cards, exact next_offset, no full descriptions. Results can grow while collection runs."""
+              match_mode:Literal["broad","all_words"]="broad",
+              record_view:Literal['candidates','all','non_jobs','missing_descriptions']='candidates',
+              required_terms:Annotated[list[Annotated[str,Field(min_length=1,max_length=100)]],Field(max_length=8)]=[]) -> dict:
+    """Search collected text, not applicant suitability. broad matches ANY word; all_words requires every word. required_terms adds mandatory literal phrases without inferred filters. Default candidates omits labelled non-jobs; all preserves raw access. query='' and missing_descriptions expose unindexed-detail gaps. Compact cards with exact next_offset; availability is not verified."""
     STORE.authorize(search_id,current_owner())
-    return STORE.find(search_id,query,offset,limit,match_mode)
+    return STORE.find(search_id,query,offset,limit,match_mode,record_view,required_terms)
 
 @mcp.tool(annotations={**WRITE,'title':'Read and enrich a job description'})
 async def read_job(search_id:str,job_id:str,text_offset:Annotated[int,Field(ge=0)]=0,
@@ -97,8 +101,8 @@ async def read_job(search_id:str,job_id:str,text_offset:Annotated[int,Field(ge=0
     from sources import _aa_fetch_details
     from linkedin_adapter import enrich_jobs,detail_url
     from http_cache import CachedClient
-    STORE.authorize(search_id,current_owner())
-    job=STORE.read(search_id,job_id,0,10000)
+    await asyncio.to_thread(STORE.authorize,search_id,current_owner())
+    job=await asyncio.to_thread(STORE.read,search_id,job_id,0,10000)
     if fetch_missing and not job['description_chars']:
         p=urlsplit(job.get('job_url',''))
         async with CachedClient(timeout=10,follow_redirects=False) as client:
@@ -110,7 +114,7 @@ async def read_job(search_id:str,job_id:str,text_offset:Annotated[int,Field(ge=0
         if job.get('description'):
             for key in ('description_chars','next_text_offset','first_seen','last_seen'):job.pop(key,None)
             await asyncio.to_thread(STORE.enrich,search_id,job)
-    result=STORE.read(search_id,job_id,text_offset,text_chars)
+    result=await asyncio.to_thread(STORE.read,search_id,job_id,text_offset,text_chars)
     if not result['description_chars']:
         result['detail_status']='missing_or_blocked'
         result['next_action']='Inspect the public job_url using available host browser; absence of text is not a negative job match.'
@@ -125,11 +129,16 @@ def get_recovery_tasks(search_id:str,offset:Annotated[int,Field(ge=0)]=0) -> dic
     tasks=[]
     for row in rows:
         payload=json.loads(row['payload']);url=payload.get('last_url') or payload['url']
+        from search_routes import indexed_url
+        queries=[row['query']] if row['query'] else payload.get('queries') or STORE.run(search_id)['config'].get('queries',[]) or ['']
         tasks.append({'task_id':row['id'],'source':row['source'],'query':row['query'],
+            'source_name':payload.get('source_name',row['source']),
+            'queries':queries,'search_url':payload.get('search_url'),
             'status':row['status'],'error':row['error'],'upstream_error':payload.get('upstream_error'),
             'url':url,'received':row['received'],'pages':row['pages'],
-            'indexed_search_url':'https://www.google.com/search?'+urlencode({'q':f"site:{urlsplit(payload['url']).hostname} {row['query']} jobs"}),
-            'next_action':'resume_search to collect more pages' if row['status']=='limited' else 'Inspect public source or employer listing using available host tools; report observed evidence',
+            'indexed_search_url':indexed_url(payload['url'],queries[0],payload.get('location','')),
+            'additional_query_count':max(0,len(queries)-1),
+            'next_action':'resume_search to collect more pages' if row['status']=='limited' else 'Host browser/search recovery required for the listed queries; opening a homepage does not complete a search. Observe access controls and record actual listings/evidence.',
             'previous_evidence':json.loads(row['evidence']) if row['evidence'] else None})
     return {'search_id':search_id,'tasks':tasks,'next_offset':next_offset,'evidence_origin':'client_reported_on_return'}
 
@@ -176,9 +185,10 @@ def resume_search(search_id:str,extra_pages:Annotated[int,Field(ge=1,le=500)]=30
 def list_job_sources(market:Literal['germany','international','worldwide']='germany',
                      offset:Annotated[int,Field(ge=0)]=0) -> dict:
     """Source registry with actual retrieval methods. Catalog membership is not evidence of working coverage. Public crawls use JSON-LD, RSS, sitemaps and recognized employer APIs."""
+    from search_routes import search_url
     rows=select_sources(market);end=min(offset+20,len(rows))
     return {'version':VERSION,'market':market,'total':len(rows),
-            'sources':[{'id':r['id'],'name':r['name'],'url':r['url'],'method':'api' if r['id'] in _FETCHERS else 'jobspy' if r['id'] in BOARDS else 'public_crawl'} for r in rows[offset:end]],
+            'sources':[{'id':r['id'],'name':r['name'],'url':r['url'],'method':'api' if r['id'] in _FETCHERS else 'jobspy' if r['id'] in BOARDS else 'public_query_route' if search_url(r['url'],'probe') else 'search_form_discovery_then_host_recovery'} for r in rows[offset:end]],
             'next_offset':end if end<len(rows) else None}
 
 from middleware import RateLimit
