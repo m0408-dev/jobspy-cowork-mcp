@@ -80,7 +80,11 @@ class QueryRegressions(unittest.TestCase):
             self.assertLess(ticks[0], 1000)
             matching = [sql for sql in statements if 'job_text MATCH' in sql]
             self.assertTrue(matching)
-            self.assertTrue(all('job_text.rowid=x.fts_rowid' in sql for sql in matching))
+            self.assertTrue(all('x.fts_rowid=job_text.rowid' in sql for sql in matching))
+            with original() as db:
+                for sql in matching:
+                    plan = db.execute('EXPLAIN QUERY PLAN ' + sql).fetchall()
+                    self.assertIn('SCAN job_text VIRTUAL TABLE', plan[0]['detail'])
 
 
 if __name__ == '__main__':

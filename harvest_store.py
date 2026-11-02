@@ -237,8 +237,13 @@ class HarvestStore:
         base = ' FROM jobs j JOIN run_jobs r ON r.job_id=j.id JOIN job_quality q ON q.id=j.id'
         if fts:
             # FTS id is UNINDEXED: use its integer row locator for reads too.
-            # Comparing the text id repeatedly scans all matching descriptions.
-            base += ' JOIN job_text_rows x ON x.id=j.id JOIN job_text ON job_text.rowid=x.fts_rowid WHERE r.run_id=? AND job_text MATCH ?'
+            # FTS must also be the outer loop: otherwise SQLite can evaluate
+            # MATCH/ranking again for every record in the selected run.
+            base = (' FROM job_text CROSS JOIN job_text_rows x ON x.fts_rowid=job_text.rowid'
+                    ' CROSS JOIN run_jobs r ON r.job_id=x.id'
+                    ' CROSS JOIN jobs j ON j.id=x.id'
+                    ' CROSS JOIN job_quality q ON q.id=j.id'
+                    ' WHERE r.run_id=? AND job_text MATCH ?')
             args.append(fts)
             order = ' ORDER BY bm25(job_text,0,5,2,1,1),r.seq'
         else:
