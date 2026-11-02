@@ -28,7 +28,7 @@ EXPOSE 8000
 
 # Container-level liveness: marks the container unhealthy if the app hangs.
 # (A host-side watchdog restarts unhealthy containers — see deploy/ / README.)
-HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=5s --start-period=300s --retries=3 \
     CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=3).read()==b'ok' else 1)"
 
 CMD ["python", "v4_server.py"]
