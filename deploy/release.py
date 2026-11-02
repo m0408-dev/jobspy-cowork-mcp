@@ -19,7 +19,9 @@ def inspect(name):
     return json.loads(docker("inspect", name))[0]
 
 def wait_healthy(name):
-    deadline = time.monotonic()+90
+    # Production-sized migration alone can take ~90s on a small Oracle VM.
+    # Leave room for import/startup and the 30s health-check interval.
+    deadline = time.monotonic()+300
     while time.monotonic() < deadline:
         state = inspect(name)["State"]
         if state["Status"] != "running":
