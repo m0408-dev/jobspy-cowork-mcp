@@ -12,6 +12,20 @@ from sources import safe_error
 
 
 class QueryRegressions(unittest.TestCase):
+    def test_quality_migration_pages_without_losing_records(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'db'
+            store = HarvestStore(path)
+            run = store.create({'queries': []}, [])
+            with store.connect() as db:
+                store._save_jobs(db, run, [
+                    {'title': 'Nurse', 'description': 'Clinical work',
+                     'job_url': f'https://example.com/migration/{i}'} for i in range(305)])
+                db.execute('DELETE FROM job_quality')
+            reopened = HarvestStore(path)
+            self.assertEqual(reopened.find(run)['matching_jobs'], 305)
+            self.assertEqual(reopened.status(run)['missing_descriptions'], 0)
+
     def test_certificate_failure_is_actionable_without_leaking_exception(self):
         exc = httpx.ConnectError('secret URL')
         exc.__cause__ = ssl.SSLCertVerificationError('CERTIFICATE_VERIFY_FAILED secret URL')

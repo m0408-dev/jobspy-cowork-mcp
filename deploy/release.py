@@ -82,11 +82,24 @@ def release(image, revision):
         print(docker("exec",candidate,"python","-c",PROTOCOL))
         print("Candidate healthy; switching with retained rollback",flush=True)
         # SQLite backup API captures a consistent database including WAL commits.
-        print(docker("exec","jobspy","python","-c",
+        snapshot = docker("exec","jobspy","python","-c",
             "import sqlite3,time; from pathlib import Path; "
             "p=Path('/app/data/harvest.sqlite'); "
             "src=sqlite3.connect(str(p)); dst=sqlite3.connect(str(p)+'.backup-'+str(int(time.time()))); "
-            "src.backup(dst); dst.close(); src.close(); print('Database backup complete')"))
+            "src.backup(dst); name=dst.execute('PRAGMA database_list').fetchone()[2]; "
+            "dst.close(); src.close(); print(name)")
+        if not re.fullmatch(r'/app/data/harvest\.sqlite\.backup-\d+', snapshot):
+            raise ValueError('Unexpected backup path')
+        print('Database backup complete', flush=True)
+        # Empty-container tests cannot detect production-sized migrations.
+        # Validate a disposable copy with a memory cap BEFORE stopping live.
+        print(docker('run','--rm','--memory','384m',
+            '--mount','type=volume,src=jobspy-results-v3,dst=/app/data,readonly',
+            image,'python','-c',
+            "import shutil,tempfile,time; from pathlib import Path; from harvest_store import HarvestStore; "
+            "t=tempfile.TemporaryDirectory(); p=Path(t.name)/'harvest.sqlite'; "
+            f"shutil.copy2({snapshot!r},p); started=time.monotonic(); s=HarvestStore(p); "
+            "print('Production-sized migration passed within 384MiB:',round(time.monotonic()-started,2),'seconds')"), flush=True)
         docker("stop","-t","30","jobspy")
         stopped = True
         docker("rename","jobspy",backup)

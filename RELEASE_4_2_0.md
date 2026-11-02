@@ -9,6 +9,7 @@ This release includes the previously uncommitted query-routing/content-integrity
 - Certificate verification failures have a bounded, non-sensitive reason code and enter recovery immediately instead of repeating ineffective retries. TLS validation remains enabled.
 - The response explicitly distinguishes the selected source market from each job's location/residency eligibility. International feed records are not silently deleted.
 - Async description/start tools offload SQLite work; synchronous tools already run in FastMCP's worker pool.
+- Quality-index migrations use bounded keyset pages instead of loading all descriptions. Deployment now validates a full production backup copy under a 384 MiB cap before stopping the live container. The first November 2 cutover exited with code137 during initialization and automatically rolled back; Docker did not flag a container OOM, so the kill mechanism is not asserted as proven.
 
 Validation covers query routes, missing descriptions, owner isolation, page retention, negative non-job fixtures, timestamp formats, certificate errors and the indexed read path. Live deploy requires the existing candidate/backup/rollback helper and MCP protocol probe.
 

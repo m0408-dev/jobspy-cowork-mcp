@@ -61,9 +61,19 @@ class HarvestStore:
             if 'indexed_at' not in {r[1] for r in db.execute('PRAGMA table_info(job_quality)')}:
                 db.execute('ALTER TABLE job_quality ADD COLUMN indexed_at REAL NOT NULL DEFAULT 0')
             # Additive migration; original bodies/IDs remain intact and rollback-compatible.
-            for row in db.execute('SELECT j.id,j.body,j.last_seen FROM jobs j LEFT JOIN job_quality q ON q.id=j.id WHERE q.id IS NULL OR q.version!=? OR q.indexed_at!=j.last_seen',(CONTENT_VERSION,)).fetchall():
-                body=json.loads(row['body']);kind,reason=classify(body)
-                db.execute('INSERT OR REPLACE INTO job_quality VALUES (?,?,?,?,?,?)',(row['id'],kind,reason,int(bool(body.get('description'))),CONTENT_VERSION,row['last_seen']))
+            # Bound memory independently of corpus size. A full fetchall of a
+            # production corpus can OOM the service before it becomes healthy.
+            # Page on immutable job IDs; updates to the joined quality table
+            # cannot invalidate the next page or change its ordering.
+            after = ''
+            while True:
+                batch = db.execute('SELECT j.id,j.body,j.last_seen FROM jobs j LEFT JOIN job_quality q ON q.id=j.id WHERE j.id>? AND (q.id IS NULL OR q.version!=? OR q.indexed_at!=j.last_seen) ORDER BY j.id LIMIT 100', (after, CONTENT_VERSION)).fetchall()
+                if not batch:
+                    break
+                for row in batch:
+                    body=json.loads(row['body']);kind,reason=classify(body)
+                    db.execute('INSERT OR REPLACE INTO job_quality VALUES (?,?,?,?,?,?)',(row['id'],kind,reason,int(bool(body.get('description'))),CONTENT_VERSION,row['last_seen']))
+                after = batch[-1]['id']
 
     def authorize(self, run_id, owner):
         if self.run(run_id)['owner'] != owner:
